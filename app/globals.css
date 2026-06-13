@@ -4,8 +4,10 @@
 
 @layer base {
   :root {
-    --background: #0a0a0f;
+    --background: #0c0c10;
     --foreground: #e4e4e7;
+    --card: #18181b;
+    --border: #27272a;
   }
 
   body {
@@ -21,9 +23,19 @@
   .text-balance {
     text-wrap: balance;
   }
+
+  .glass {
+    background: rgba(24, 24, 27, 0.6);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
+
+  .glass-border {
+    border: 1px solid rgba(39, 39, 42, 0.6);
+  }
 }
 
-/* Scrollbar styling */
+/* Custom scrollbar */
 ::-webkit-scrollbar {
   width: 6px;
 }
@@ -33,10 +45,27 @@
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(113, 113, 122, 0.3);
+  background: rgba(113, 113, 122, 0.25);
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(113, 113, 122, 0.5);
+  background: rgba(113, 113, 122, 0.4);
+}
+
+/* Animations */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.animate-shimmer {
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.05), transparent);
+  background-size: 200% 100%;
+  animation: shimmer 2s infinite;
+}
+
+/* Video player custom styles */
+video::-webkit-media-controls-panel {
+  background: linear-gradient(0deg, rgba(0,0,0,0.8) 0%, transparent 100%);
 }

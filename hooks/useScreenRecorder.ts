@@ -12,7 +12,7 @@ interface UseScreenRecorderReturn {
   audioLevel: number;
   error: string | null;
   audioTrackMuted: boolean;
-  startRecording: () => Promise<void>;
+  startRecording: (resolution?: '1080p' | '4K') => Promise<void>;
   stopRecording: () => void;
   reset: () => void;
   /** Returns a blob of new audio-only chunks since the last call. */
@@ -77,7 +77,7 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
     []
   );
 
-  const startRecording = useCallback(async () => {
+  const startRecording = useCallback(async (resolution: '1080p' | '4K' = '4K') => {
     try {
       setError(null);
       setRecordedBlob(null);
@@ -88,8 +88,13 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 
       console.log('[ScreenRecorder] Opening screen picker...');
       // Get display media (screen + system audio)
+      const is4K = resolution === '4K';
       const displayStream = await navigator.mediaDevices.getDisplayMedia({
-        video: { width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 } },
+        video: {
+          width: { ideal: is4K ? 3840 : 1920, max: is4K ? 3840 : 1920 },
+          height: { ideal: is4K ? 2160 : 1080, max: is4K ? 2160 : 1080 },
+          frameRate: { ideal: is4K ? 60 : 30, max: is4K ? 60 : 30 },
+        },
         audio: {
           echoCancellation: false,
           noiseSuppression: false,
@@ -183,7 +188,11 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
       mimeTypeRef.current = videoMimeType;
       console.log('[ScreenRecorder] Selected video mimeType:', videoMimeType);
 
-      const videoRecorder = new MediaRecorder(combinedStream, { mimeType: videoMimeType });
+      const videoRecorder = new MediaRecorder(combinedStream, {
+        mimeType: videoMimeType,
+        videoBitsPerSecond: 20_000_000, // 20 Mbps for high quality
+        audioBitsPerSecond: 256_000,     // 256 kbps for high quality audio
+      });
       mediaRecorderRef.current = videoRecorder;
       chunksRef.current = [];
 
