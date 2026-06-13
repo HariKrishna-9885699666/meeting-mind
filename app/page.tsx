@@ -124,7 +124,7 @@ export default function Home() {
               } catch (e) {
                 console.error('[Process] Background transcription failed:', e);
               }
-            }, 50);
+            }, 1000);
           }
         }
       } else {
@@ -139,7 +139,8 @@ export default function Home() {
           const rec = recorderRef.current;
           const audioBlob = rec.getCompleteAudioBlob();
           if (audioBlob) {
-            setTimeout(async () => {
+            pendingTranscriptionRef.current = setTimeout(async () => {
+              pendingTranscriptionRef.current = null;
               try {
                 await trans.transcribe(audioBlob);
               } catch (e) {
@@ -418,9 +419,16 @@ export default function Home() {
         {appState === 'done' && mp4Blob && (
           <div className="w-full max-w-2xl mx-auto space-y-8">
             <VideoPreview blob={mp4Blob} />
-            {displaySegments.length > 0 && (
+            {displaySegments.length > 0 ? (
               <TranscriptPanel segments={displaySegments} />
-            )}
+            ) : transcription.state !== 'idle' && transcription.state !== 'done' ? (
+              <div className="bg-zinc-900/40 border border-zinc-800/50 rounded-2xl p-5">
+                <div className="flex items-center justify-center gap-2">
+                  <div className="w-4 h-4 border-2 border-zinc-500 border-t-transparent rounded-full animate-spin" />
+                  <p className="text-sm text-zinc-500">Transcribing audio...</p>
+                </div>
+              </div>
+            ) : null}
 
             <div className="flex justify-center">
               <button
