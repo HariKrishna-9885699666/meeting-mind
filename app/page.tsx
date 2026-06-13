@@ -8,6 +8,7 @@ import ProgressPanel from '@/components/ProgressPanel';
 import VideoPreview from '@/components/VideoPreview';
 import TranscriptPanel from '@/components/TranscriptPanel';
 import KeyboardHandler from '@/components/KeyboardHandler';
+import FloatingInfoButton from '@/components/FloatingInfoButton';
 import { useScreenRecorder } from '@/hooks/useScreenRecorder';
 import { useFFmpeg } from '@/hooks/useFFmpeg';
 import { useTranscription } from '@/hooks/useTranscription';
@@ -214,7 +215,7 @@ export default function Home() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
             </svg>
           </div>
-          <span className="text-lg font-bold text-zinc-100 tracking-tight">ScreenScribe</span>
+          <span className="text-lg font-bold text-zinc-100 tracking-tight">MeetMind</span>
         </div>
         <div className="flex items-center gap-2">
           <span className="text-[10px] font-medium text-zinc-600 bg-zinc-800/50 px-2 py-1 rounded-md border border-zinc-700/50">
@@ -447,6 +448,9 @@ export default function Home() {
           </div>
         )}
       </main>
+
+      {/* Floating info button */}
+      <FloatingInfoButton />
 
       {/* Footer */}
       <footer className="px-6 py-4 border-t border-zinc-800/30">

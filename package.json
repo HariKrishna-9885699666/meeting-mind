@@ -1,8 +1,8 @@
 {
-  "name": "screenscribe",
+  "name": "meetmind",
   "version": "1.0.0",
   "private": true,
-  "description": "ScreenScribe — A zero-backend, browser-based screen recorder that captures your screen with system audio, converts recordings to high-quality MP4 using ffmpeg.wasm, and generates transcripts with Whisper AI — all running locally in your browser. No uploads, no cloud, no subscriptions.",
+  "description": "MeetMind — A zero-backend, browser-based screen recorder that captures your screen with system audio, converts recordings to high-quality MP4 using ffmpeg.wasm, and generates transcripts with Whisper AI — all running locally in your browser. No uploads, no cloud, no subscriptions.",
   "keywords": [
     "screen-recording",
     "screen-capture",

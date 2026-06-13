@@ -1,6 +1,6 @@
 {
-  "name": "ScreenScribe",
-  "short_name": "ScreenScribe",
+  "name": "MeetMind",
+  "short_name": "MeetMind",
   "description": "Record your screen with system audio and get automatic transcripts — all in your browser, zero uploads.",
   "start_url": "/",
   "display": "standalone",

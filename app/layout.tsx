@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "ScreenScribe — Screen Recording with AI Transcripts",
+  title: "MeetMind — Screen Recording with AI Transcripts",
   description:
     "Record your screen with system audio and get automatic transcripts — all in your browser, zero uploads. Powered by ffmpeg.wasm and Whisper AI.",
   keywords: [
@@ -19,14 +19,14 @@ export const metadata: Metadata = {
   ],
   authors: [{ name: "Hari Krishna" }],
   creator: "Hari Krishna",
-  publisher: "ScreenScribe",
+  publisher: "MeetMind",
   robots: "index, follow",
   openGraph: {
     type: "website",
     locale: "en_US",
     url: "https://github.com/HariKrishna-9885699666/meeting-mind",
-    siteName: "ScreenScribe",
-    title: "ScreenScribe — Screen Recording with AI Transcripts",
+    siteName: "MeetMind",
+    title: "MeetMind — Screen Recording with AI Transcripts",
     description:
       "Record your screen with system audio and get automatic transcripts — all in your browser, zero uploads.",
     images: [
@@ -34,13 +34,13 @@ export const metadata: Metadata = {
         url: "/og-image.png",
         width: 1200,
         height: 630,
-        alt: "ScreenScribe - Record your screen. Keep your words.",
+        alt: "MeetMind - Record your screen. Keep your words.",
       },
     ],
   },
   twitter: {
     card: "summary_large_image",
-    title: "ScreenScribe — Screen Recording with AI Transcripts",
+    title: "MeetMind — Screen Recording with AI Transcripts",
     description:
       "Record your screen with system audio and get automatic transcripts — all in your browser, zero uploads.",
     images: ["/og-image.png"],
