@@ -109,23 +109,30 @@ export default function Home() {
     try {
       setErrorMessage(null);
 
-      // Load FFmpeg if not loaded
-      if (ffm.state === 'idle') {
-        await ffm.loadFFmpeg();
+      // If blob is already MP4 (Chrome native), skip FFmpeg entirely
+      let outputBlob: Blob;
+      if (blob.type.startsWith('video/mp4')) {
+        console.log('[Process] Blob is already MP4, skipping FFmpeg');
+        outputBlob = blob;
+      } else {
+        // Load FFmpeg if not loaded
+        if (ffm.state === 'idle') {
+          await ffm.loadFFmpeg();
+        }
+        outputBlob = await ffm.convertToMP4(blob);
       }
-
-      // Run FFmpeg conversion
-      const [convertedBlob] = await Promise.all([
-        ffm.convertToMP4(blob),
-      ]);
 
       // Fallback: if no live segments were captured (e.g. short recording),
-      // run a full transcription on the complete blob
+      // run a full transcription on the audio-only blob (not the video blob)
       if (trans.liveSegments.length === 0) {
-        await trans.transcribe(blob);
+        const rec = recorderRef.current;
+        const audioBlob = rec.getCompleteAudioBlob();
+        if (audioBlob) {
+          await trans.transcribe(audioBlob);
+        }
       }
 
-      setMp4Blob(convertedBlob);
+      setMp4Blob(outputBlob);
       setAppState('done');
     } catch (err) {
       const message =

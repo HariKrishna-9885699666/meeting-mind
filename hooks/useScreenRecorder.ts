@@ -15,8 +15,10 @@ interface UseScreenRecorderReturn {
   startRecording: () => Promise<void>;
   stopRecording: () => void;
   reset: () => void;
-  /** Returns a blob of new audio chunks since the last call, or null if no new data. */
+  /** Returns a blob of new audio-only chunks since the last call. */
   getPendingAudioChunksBlob: () => Blob | null;
+  /** Returns a complete audio-only blob of all recorded audio (for final transcription). */
+  getCompleteAudioBlob: () => Blob | null;
 }
 
 export function useScreenRecorder(): UseScreenRecorderReturn {
@@ -31,7 +33,10 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const mimeTypeRef = useRef<string>('video/webm');
-  const lastTranscribedChunkIndexRef = useRef<number>(0);
+  // Separate audio-only MediaRecorder for live transcription chunks
+  const audioRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const lastTranscribedAudioChunkIndexRef = useRef<number>(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
@@ -81,29 +86,45 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
       setAudioTrackMuted(false);
       setState('requesting');
 
+      console.log('[ScreenRecorder] Opening screen picker...');
       // Get display media (screen + system audio)
       const displayStream = await navigator.mediaDevices.getDisplayMedia({
         video: { width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 } },
-        audio: true,
+        audio: {
+          echoCancellation: false,
+          noiseSuppression: false,
+          sampleRate: 48000,
+        },
       });
+      console.log('[ScreenRecorder] Screen picker resolved, tracks:', displayStream.getTracks().length);
 
       // Check if system audio is available
       const audioTracks = displayStream.getAudioTracks();
+      console.log('[ScreenRecorder] Audio tracks:', audioTracks.length);
       if (audioTracks.length === 0) {
+        console.log('[ScreenRecorder] No system audio');
         setAudioTrackMuted(true);
       }
 
       // Try to get mic audio
       let micStream: MediaStream | null = null;
       try {
+        console.log('[ScreenRecorder] Requesting mic...');
         micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        console.log('[ScreenRecorder] Mic obtained');
       } catch {
-        // Mic access denied, continue without mic
+        console.log('[ScreenRecorder] Mic denied or unavailable');
       }
 
-      // Set up audio mixing
+      console.log('[ScreenRecorder] Setting up audio mixing...');
       const audioCtx = new AudioContext();
       audioContextRef.current = audioCtx;
+      console.log('[ScreenRecorder] AudioContext state:', audioCtx.state);
+      // Ensure AudioContext is running (may be suspended after async getDisplayMedia)
+      if (audioCtx.state === 'suspended') {
+        await audioCtx.resume();
+        console.log('[ScreenRecorder] AudioContext resumed:', audioCtx.state);
+      }
 
       const dest = audioCtx.createMediaStreamDestination();
 
@@ -113,12 +134,14 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
         const sysSource = audioCtx.createMediaStreamSource(displayStream);
         sysSource.connect(dest);
         hasAudio = true;
+        console.log('[ScreenRecorder] System audio added to mix');
       }
 
       if (micStream) {
         const micSource = audioCtx.createMediaStreamSource(micStream);
         micSource.connect(dest);
         hasAudio = true;
+        console.log('[ScreenRecorder] Mic audio added to mix');
       }
 
       // Combine video from display with mixed audio
@@ -131,8 +154,9 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
           combinedStream.addTrack(audioTrack);
         }
       }
+      console.log('[ScreenRecorder] Combined stream tracks:', combinedStream.getTracks().length);
 
-      // Set up audio level meter using original stream's audio
+      // Set up audio level meter
       if (hasAudio && audioTracks.length > 0) {
         const meterSource = audioCtx.createMediaStreamSource(
           new MediaStream([audioTracks[0]])
@@ -145,41 +169,95 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
         startAudioLevelMeter(audioCtx, meterSource);
       }
 
-      // Determine best mime type
-      const mimeType = MediaRecorder.isTypeSupported(
-        'video/webm;codecs=vp9,opus'
-      )
-        ? 'video/webm;codecs=vp9,opus'
-        : 'video/webm';
+      // --- Main video MediaRecorder ---
+      // Determine best mime type — prefer MP4 (Chrome supports it natively)
+      let videoMimeType = 'video/webm';
+      if (MediaRecorder.isTypeSupported('video/mp4;codecs=avc1,mp4a.40.2')) {
+        videoMimeType = 'video/mp4;codecs=avc1,mp4a.40.2';
+        console.log('[ScreenRecorder] Browser supports MP4 recording, skipping FFmpeg');
+      } else if (MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus')) {
+        videoMimeType = 'video/webm;codecs=vp9,opus';
+      } else if (MediaRecorder.isTypeSupported('video/webm;codecs=vp8,opus')) {
+        videoMimeType = 'video/webm;codecs=vp8,opus';
+      }
+      mimeTypeRef.current = videoMimeType;
+      console.log('[ScreenRecorder] Selected video mimeType:', videoMimeType);
 
-      mimeTypeRef.current = mimeType;
-
-      const recorder = new MediaRecorder(combinedStream, { mimeType });
-      mediaRecorderRef.current = recorder;
+      const videoRecorder = new MediaRecorder(combinedStream, { mimeType: videoMimeType });
+      mediaRecorderRef.current = videoRecorder;
       chunksRef.current = [];
-      lastTranscribedChunkIndexRef.current = 0;
 
-      recorder.ondataavailable = (e) => {
+      videoRecorder.ondataavailable = (e) => {
         if (e.data.size > 0) {
           chunksRef.current.push(e.data);
         }
       };
 
-      recorder.onstop = () => {
-        clearTimer();
-        stopAudioLevelMeter();
-        displayStream.getTracks().forEach((t) => t.stop());
-        micStream?.getTracks().forEach((t) => t.stop());
-        if (audioCtx.state !== 'closed') {
-          audioCtx.close();
-        }
+      // --- Audio-only MediaRecorder for live transcription ---
+      let audioRecorder: MediaRecorder | null = null;
+      if (hasAudio) {
+        const audioStream = new MediaStream(dest.stream.getAudioTracks());
+        const audioMimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+          ? 'audio/webm;codecs=opus'
+          : 'audio/webm';
+        console.log('[ScreenRecorder] Audio recorder mimeType:', audioMimeType);
 
-        const blob = new Blob(chunksRef.current, { type: mimeType });
-        setRecordedBlob(blob);
-        setState('stopped');
+        audioRecorder = new MediaRecorder(audioStream, { mimeType: audioMimeType });
+        audioRecorderRef.current = audioRecorder;
+        audioChunksRef.current = [];
+        lastTranscribedAudioChunkIndexRef.current = 0;
+
+        audioRecorder.ondataavailable = (e) => {
+          if (e.data.size > 0) {
+            audioChunksRef.current.push(e.data);
+          }
+        };
+      }
+
+      // --- Stop handler for both recorders ---
+      let recorderStopped = false;
+      let audioRecorderStopped = !hasAudio; // mark done if no audio
+
+      const checkBothStopped = () => {
+        if (recorderStopped && audioRecorderStopped) {
+          console.log('[ScreenRecorder] Both recorders stopped, creating final blob. Chunks:', chunksRef.current.length);
+          clearTimer();
+          stopAudioLevelMeter();
+          displayStream.getTracks().forEach((t) => t.stop());
+          micStream?.getTracks().forEach((t) => t.stop());
+          if (audioCtx.state !== 'closed') {
+            audioCtx.close();
+          }
+
+          const blob = new Blob(chunksRef.current, { type: videoMimeType });
+          console.log('[ScreenRecorder] Final blob size:', blob.size, 'bytes');
+          setRecordedBlob(blob);
+          setState('stopped');
+        }
       };
 
-      recorder.start(1000); // Collect chunks every second
+      videoRecorder.onstop = () => {
+        console.log('[ScreenRecorder] Video MediaRecorder stopped');
+        recorderStopped = true;
+        checkBothStopped();
+      };
+
+      if (audioRecorder) {
+        audioRecorder.onstop = () => {
+          console.log('[ScreenRecorder] Audio MediaRecorder stopped');
+          audioRecorderStopped = true;
+          checkBothStopped();
+        };
+      }
+
+      videoRecorder.start(1000);
+      console.log('[ScreenRecorder] Video MediaRecorder started, state:', videoRecorder.state);
+
+      if (audioRecorder) {
+        audioRecorder.start(1000);
+        console.log('[ScreenRecorder] Audio MediaRecorder started, state:', audioRecorder.state);
+      }
+
       setStream(combinedStream);
 
       // Start timer
@@ -188,15 +266,21 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
         setElapsedSeconds(Math.floor((Date.now() - startTime) / 1000));
       }, 1000);
 
+      console.log('[ScreenRecorder] Setting state to recording');
       setState('recording');
 
       // Handle user stopping via browser UI
       videoTrack.onended = () => {
-        if (recorder.state === 'recording') {
-          recorder.stop();
+        console.log('[ScreenRecorder] Video track ended (user stopped sharing)');
+        if (videoRecorder.state === 'recording') {
+          videoRecorder.stop();
+        }
+        if (audioRecorder && audioRecorder.state === 'recording') {
+          audioRecorder.stop();
         }
       };
     } catch (err) {
+      console.error('[ScreenRecorder] Error in startRecording:', err);
       const message =
         err instanceof DOMException && err.name === 'NotAllowedError'
           ? 'Screen recording permission was denied. Please allow screen capture to record.'
@@ -209,26 +293,48 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
   }, [clearTimer, stopAudioLevelMeter, startAudioLevelMeter]);
 
   const stopRecording = useCallback(() => {
+    // Stop video recorder
     if (
       mediaRecorderRef.current &&
       mediaRecorderRef.current.state === 'recording'
     ) {
       mediaRecorderRef.current.stop();
     }
+    // Stop audio recorder
+    if (
+      audioRecorderRef.current &&
+      audioRecorderRef.current.state === 'recording'
+    ) {
+      audioRecorderRef.current.stop();
+    }
   }, []);
 
   const getPendingAudioChunksBlob = useCallback((): Blob | null => {
-    const chunks = chunksRef.current;
-    const fromIndex = lastTranscribedChunkIndexRef.current;
+    const chunks = audioChunksRef.current;
+    const fromIndex = lastTranscribedAudioChunkIndexRef.current;
 
     if (fromIndex >= chunks.length) {
       return null;
     }
 
     const newChunks = chunks.slice(fromIndex);
-    lastTranscribedChunkIndexRef.current = chunks.length;
+    lastTranscribedAudioChunkIndexRef.current = chunks.length;
 
-    return new Blob(newChunks, { type: mimeTypeRef.current });
+    // Use best audio mime type
+    const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+      ? 'audio/webm;codecs=opus'
+      : 'audio/webm';
+    return new Blob(newChunks, { type: mimeType });
+  }, []);
+
+  const getCompleteAudioBlob = useCallback((): Blob | null => {
+    const chunks = audioChunksRef.current;
+    if (chunks.length === 0) return null;
+
+    const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+      ? 'audio/webm;codecs=opus'
+      : 'audio/webm';
+    return new Blob(chunks, { type: mimeType });
   }, []);
 
   const reset = useCallback(() => {
@@ -240,7 +346,8 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
     setError(null);
     setAudioTrackMuted(false);
     chunksRef.current = [];
-    lastTranscribedChunkIndexRef.current = 0;
+    audioChunksRef.current = [];
+    lastTranscribedAudioChunkIndexRef.current = 0;
   }, []);
 
   return {
@@ -255,5 +362,6 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
     stopRecording,
     reset,
     getPendingAudioChunksBlob,
+    getCompleteAudioBlob,
   };
 }

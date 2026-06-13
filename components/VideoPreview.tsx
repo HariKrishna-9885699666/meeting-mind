@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useRef, useEffect } from 'react';
+import React, { useRef } from 'react';
 
 interface VideoPreviewProps {
   blob: Blob;
@@ -8,17 +8,33 @@ interface VideoPreviewProps {
 
 export default function VideoPreview({ blob }: VideoPreviewProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const url = URL.createObjectURL(blob);
+  // Track the previous blob to avoid recreating URL on every render
+  const blobRef = useRef(blob);
+  const urlRef = useRef<string | null>(null);
 
-  useEffect(() => {
-    return () => {
-      URL.revokeObjectURL(url);
-    };
-  }, [url]);
+  // Only recreate URL when blob reference changes
+  if (blob !== blobRef.current) {
+    if (urlRef.current) {
+      URL.revokeObjectURL(urlRef.current);
+    }
+    urlRef.current = URL.createObjectURL(blob);
+    blobRef.current = blob;
+  } else if (!urlRef.current) {
+    urlRef.current = URL.createObjectURL(blob);
+  }
+
+  const url = urlRef.current;
+
+  // No cleanup effect — the ref-based blob comparison above handles revoking old URLs
+  // when the blob reference changes. On component unmount (Record Again), the blob URL
+  // is released by the browser when the page is refreshed or navigated away.
+  // This avoids React Strict Mode double-invoke issues entirely.
 
   const handleDownload = () => {
+    // Create a fresh URL for download to ensure it works even if urlRef is somehow stale
+    const downloadUrl = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url;
+    a.href = downloadUrl;
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
     a.download = `screen-recording-${timestamp}.mp4`;
     a.click();

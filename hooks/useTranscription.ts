@@ -5,11 +5,8 @@ import { pipeline, env } from '@xenova/transformers';
 import { extractAudioPCM } from '@/lib/audioExtractor';
 import type { TranscriptSegment } from '@/lib/srtFormatter';
 
-// Configure to load models from Hugging Face CDN (not localhost)
-// This must be set before the pipeline() call
+// Force loading models from Hugging Face CDN (not localhost)
 env.allowLocalModels = false;
-env.remoteHost = 'https://huggingface.co';
-env.remotePathTemplate = '{model}/resolve/main/{file}';
 
 type TranscriptionState =
   | 'idle'
