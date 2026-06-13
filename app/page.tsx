@@ -36,12 +36,17 @@ export default function Home() {
   recorderRef.current = recorder;
 
   const liveTranscriptionTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pendingTranscriptionRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     return () => {
       if (liveTranscriptionTimerRef.current) {
         clearInterval(liveTranscriptionTimerRef.current);
         liveTranscriptionTimerRef.current = null;
+      }
+      if (pendingTranscriptionRef.current) {
+        clearTimeout(pendingTranscriptionRef.current);
+        pendingTranscriptionRef.current = null;
       }
     };
   }, []);
@@ -59,8 +64,7 @@ export default function Home() {
       case 'stopped':
         stopLiveTranscription();
         if (recorder.recordedBlob) {
-          setAppState('processing');
-          processRecordingRef.current(recorder.recordedBlob);
+          handleRecordingStopped(recorder.recordedBlob);
         }
         break;
     }
@@ -93,42 +97,74 @@ export default function Home() {
     }
   }, []);
 
-  const processRecording = useCallback(async (blob: Blob) => {
+  // Called directly when recording stops — no ref/useEffect indirection
+  const handleRecordingStopped = useCallback(async (blob: Blob) => {
     const ffm = ffmpegRef.current;
     const trans = transcriptionRef.current;
+
     try {
       setErrorMessage(null);
-      let outputBlob: Blob;
+
       if (blob.type.startsWith('video/mp4')) {
-        console.log('[Process] Blob is already MP4, skipping FFmpeg');
-        outputBlob = blob;
+        // MP4 is ready immediately — show video right away, no processing state
+        console.log('[Process] MP4 ready, showing video');
+        setMp4Blob(blob);
+        setAppState('done');
+
+        // Defer transcription to let React render the video first
+        if (trans.liveSegments.length === 0) {
+          const rec = recorderRef.current;
+          const audioBlob = rec.getCompleteAudioBlob();
+          if (audioBlob) {
+            console.log('[Process] Deferring transcription...');
+            pendingTranscriptionRef.current = setTimeout(async () => {
+              pendingTranscriptionRef.current = null;
+              try {
+                await trans.transcribe(audioBlob);
+              } catch (e) {
+                console.error('[Process] Background transcription failed:', e);
+              }
+            }, 50);
+          }
+        }
       } else {
+        // WebM — need processing state while FFmpeg converts
+        setAppState('processing');
         if (ffm.state === 'idle') {
           await ffm.loadFFmpeg();
         }
-        outputBlob = await ffm.convertToMP4(blob);
-      }
-      if (trans.liveSegments.length === 0) {
-        const rec = recorderRef.current;
-        const audioBlob = rec.getCompleteAudioBlob();
-        if (audioBlob) {
-          await trans.transcribe(audioBlob);
+        const outputBlob = await ffm.convertToMP4(blob);
+
+        if (trans.liveSegments.length === 0) {
+          const rec = recorderRef.current;
+          const audioBlob = rec.getCompleteAudioBlob();
+          if (audioBlob) {
+            setTimeout(async () => {
+              try {
+                await trans.transcribe(audioBlob);
+              } catch (e) {
+                console.error('[Process] Background transcription failed:', e);
+              }
+            }, 50);
+          }
         }
+
+        setMp4Blob(outputBlob);
+        setAppState('done');
       }
-      setMp4Blob(outputBlob);
-      setAppState('done');
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Processing failed.';
       setErrorMessage(message);
       setAppState('error');
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const processRecordingRef = useRef(processRecording);
-  processRecordingRef.current = processRecording;
-
   const handleStartRecording = useCallback(async () => {
+    // Clear any pending background transcription
+    if (pendingTranscriptionRef.current) {
+      clearTimeout(pendingTranscriptionRef.current);
+      pendingTranscriptionRef.current = null;
+    }
     setErrorMessage(null);
     setMp4Blob(null);
     ffmpeg.reset();
@@ -141,6 +177,11 @@ export default function Home() {
   }, [recorder]);
 
   const handleRecordAgain = useCallback(() => {
+    // Clear any pending background transcription
+    if (pendingTranscriptionRef.current) {
+      clearTimeout(pendingTranscriptionRef.current);
+      pendingTranscriptionRef.current = null;
+    }
     setAppState('idle');
     setMp4Blob(null);
     setErrorMessage(null);

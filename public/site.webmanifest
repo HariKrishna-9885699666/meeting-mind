@@ -1,0 +1,21 @@
+{
+  "name": "ScreenScribe",
+  "short_name": "ScreenScribe",
+  "description": "Record your screen with system audio and get automatic transcripts — all in your browser, zero uploads.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0c0c10",
+  "theme_color": "#3b82f6",
+  "orientation": "landscape-primary",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["productivity", "utilities"],
+  "screenshots": [],
+  "prefer_related_applications": false
+}

@@ -190,8 +190,8 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 
       const videoRecorder = new MediaRecorder(combinedStream, {
         mimeType: videoMimeType,
-        videoBitsPerSecond: 20_000_000, // 20 Mbps for high quality
-        audioBitsPerSecond: 256_000,     // 256 kbps for high quality audio
+        videoBitsPerSecond: is4K ? 12_000_000 : 6_000_000, // 12 Mbps for 4K, 6 Mbps for 1080p
+        audioBitsPerSecond: 192_000,
       });
       mediaRecorderRef.current = videoRecorder;
       chunksRef.current = [];
