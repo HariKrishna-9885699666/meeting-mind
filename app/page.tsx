@@ -12,7 +12,7 @@ import FloatingInfoButton from '@/components/FloatingInfoButton';
 import { useScreenRecorder } from '@/hooks/useScreenRecorder';
 import { useFFmpeg } from '@/hooks/useFFmpeg';
 import { useTranscription } from '@/hooks/useTranscription';
-import type { TranscriptSegment } from '@/lib/srtFormatter';
+import { formatSRT, type TranscriptSegment } from '@/lib/srtFormatter';
 
 type AppState = 'idle' | 'requesting' | 'recording' | 'processing' | 'done' | 'error';
 
@@ -38,6 +38,7 @@ export default function Home() {
 
   const liveTranscriptionTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pendingTranscriptionRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const processingGenerationRef = useRef(0);
 
   useEffect(() => {
     return () => {
@@ -102,59 +103,59 @@ export default function Home() {
   const handleRecordingStopped = useCallback(async (blob: Blob) => {
     const ffm = ffmpegRef.current;
     const trans = transcriptionRef.current;
+    const generation = ++processingGenerationRef.current;
 
     try {
       setErrorMessage(null);
+      setAppState('processing');
 
-      if (blob.type.startsWith('video/mp4')) {
-        // MP4 is ready immediately — show video right away, no processing state
-        console.log('[Process] MP4 ready, showing video');
-        setMp4Blob(blob);
-        setAppState('done');
-
-        // Defer transcription to let React render the video first
-        if (trans.liveSegments.length === 0) {
-          const rec = recorderRef.current;
-          const audioBlob = rec.getCompleteAudioBlob();
-          if (audioBlob) {
-            console.log('[Process] Deferring transcription...');
-            pendingTranscriptionRef.current = setTimeout(async () => {
-              pendingTranscriptionRef.current = null;
-              try {
-                await trans.transcribe(audioBlob);
-              } catch (e) {
-                console.error('[Process] Background transcription failed:', e);
-              }
-            }, 1000);
-          }
-        }
-      } else {
-        // WebM — need processing state while FFmpeg converts
-        setAppState('processing');
-        if (ffm.state === 'idle') {
-          await ffm.loadFFmpeg();
-        }
-        const outputBlob = await ffm.convertToMP4(blob);
-
-        if (trans.liveSegments.length === 0) {
-          const rec = recorderRef.current;
-          const audioBlob = rec.getCompleteAudioBlob();
-          if (audioBlob) {
-            pendingTranscriptionRef.current = setTimeout(async () => {
-              pendingTranscriptionRef.current = null;
-              try {
-                await trans.transcribe(audioBlob);
-              } catch (e) {
-                console.error('[Process] Background transcription failed:', e);
-              }
-            }, 50);
-          }
-        }
-
-        setMp4Blob(outputBlob);
-        setAppState('done');
+      // Ensure FFmpeg is loaded
+      if (ffm.state === 'idle') {
+        await ffm.loadFFmpeg();
       }
+
+      // Start conversion and transcription in parallel
+      const conversionPromise = blob.type.startsWith('video/mp4')
+        ? Promise.resolve(blob)
+        : ffm.convertToMP4(blob);
+
+      let transcriptionPromise: Promise<TranscriptSegment[]> | null = null;
+      if (trans.liveSegments.length === 0) {
+        const rec = recorderRef.current;
+        const audioBlob = rec.getCompleteAudioBlob();
+        if (audioBlob) {
+          transcriptionPromise = trans.transcribe(audioBlob);
+        }
+      }
+
+      // Wait for both to complete
+      const [mp4Blob, segments] = await Promise.all([
+        conversionPromise,
+        transcriptionPromise || Promise.resolve(trans.liveSegments),
+      ]);
+
+      // Check if a newer processing run has started
+      if (processingGenerationRef.current !== generation) return;
+
+      // Burn subtitles into video if we have segments
+      let finalBlob = mp4Blob;
+      if (segments.length > 0) {
+        const srtContent = formatSRT(segments);
+        try {
+          finalBlob = await ffm.burnSubtitles(mp4Blob, srtContent);
+        } catch (err) {
+          console.error('[Process] Subtitle burning failed, showing video without subtitles:', err);
+          // Continue with original video if burning fails
+        }
+      }
+
+      // Final generation check
+      if (processingGenerationRef.current !== generation) return;
+
+      setMp4Blob(finalBlob);
+      setAppState('done');
     } catch (err) {
+      if (processingGenerationRef.current !== generation) return;
       const message = err instanceof Error ? err.message : 'Processing failed.';
       setErrorMessage(message);
       setAppState('error');
@@ -167,6 +168,7 @@ export default function Home() {
       clearTimeout(pendingTranscriptionRef.current);
       pendingTranscriptionRef.current = null;
     }
+    processingGenerationRef.current++;
     setErrorMessage(null);
     setMp4Blob(null);
     ffmpeg.reset();
@@ -184,6 +186,7 @@ export default function Home() {
       clearTimeout(pendingTranscriptionRef.current);
       pendingTranscriptionRef.current = null;
     }
+    processingGenerationRef.current++;
     setAppState('idle');
     setMp4Blob(null);
     setErrorMessage(null);

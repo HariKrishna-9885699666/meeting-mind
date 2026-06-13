@@ -29,7 +29,7 @@ interface UseTranscriptionReturn {
   modelProgress: ModelProgress | null;
   transcriptionProgress: number;
   error: string | null;
-  transcribe: (blob: Blob) => Promise<void>;
+  transcribe: (blob: Blob) => Promise<TranscriptSegment[]>;
   /** Transcribe a short audio chunk and return its segments (for live use). */
   transcribePartial: (blob: Blob) => Promise<TranscriptSegment[]>;
   /** Accumulated live transcript segments from partial transcriptions. */
@@ -115,7 +115,7 @@ export function useTranscription(): UseTranscriptionReturn {
     return parsed;
   }, []);
 
-  const transcribe = useCallback(async (blob: Blob) => {
+  const transcribe = useCallback(async (blob: Blob): Promise<TranscriptSegment[]> => {
     try {
       setError(null);
       setSegments([]);
@@ -143,6 +143,7 @@ export function useTranscription(): UseTranscriptionReturn {
       setSegments(rawSegments);
       setTranscriptionProgress(100);
       setState('done');
+      return rawSegments;
     } catch (err) {
       const message =
         err instanceof Error
@@ -150,6 +151,7 @@ export function useTranscription(): UseTranscriptionReturn {
           : 'Transcription failed.';
       setError(message);
       setState('error');
+      return [];
     }
   }, [ensureModel, parseResult]);
 
