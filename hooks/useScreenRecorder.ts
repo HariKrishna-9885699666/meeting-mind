@@ -4,9 +4,6 @@ import { useRef, useCallback, useState } from 'react';
 
 export type RecorderState = 'idle' | 'requesting' | 'recording' | 'stopped';
 
-const SCRIPT_NODE_BUFFER_SIZE = 4096;
-const PCM_DOWNSAMPLE_RATIO = 48000 / 16000; // 3 — AudioContext @48kHz → Whisper @16kHz
-
 interface UseScreenRecorderReturn {
   state: RecorderState;
   stream: MediaStream | null;
@@ -18,14 +15,10 @@ interface UseScreenRecorderReturn {
   startRecording: (resolution?: '1080p' | '4K') => Promise<void>;
   stopRecording: () => void;
   reset: () => void;
-  /** Returns a blob of new audio-only chunks since the last call. */
+  /** Returns a blob of new audio-only chunks since the last call (prepends WebM header for valid decoding). */
   getPendingAudioChunksBlob: () => Blob | null;
   /** Returns a complete audio-only blob of all recorded audio (for final transcription). */
   getCompleteAudioBlob: () => Blob | null;
-  /** Returns new raw PCM samples (16kHz mono) since last call, for live transcription. */
-  getPendingAudioPCM: () => Float32Array | null;
-  /** Returns all raw PCM samples (16kHz mono) captured so far. */
-  getCompleteAudioPCM: () => Float32Array | null;
 }
 
 export function useScreenRecorder(): UseScreenRecorderReturn {
@@ -48,11 +41,7 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const animFrameRef = useRef<number>(0);
-  // Raw PCM capture for live transcription
-  const scriptNodeRef = useRef<ScriptProcessorNode | null>(null);
-  const pcmBufferRef = useRef<Float32Array>(new Float32Array(0));
-  const pcmIndexRef = useRef<number>(0);
-  const lastTranscribedPcmSampleRef = useRef<number>(0);
+
 
   const clearTimer = useCallback(() => {
     if (timerRef.current) {
@@ -145,67 +134,20 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 
       const dest = audioCtx.createMediaStreamDestination();
 
-      // Device both audio sources directly to the destination (recording path).
-      // Separately, connect them through a ScriptProcessorNode for PCM capture
-      // (live transcription). The ScriptProcessorNode output goes through a
-      // muted GainNode so it does NOT affect the recording audio.
-
-      // Reset PCM buffer
-      pcmBufferRef.current = new Float32Array(0);
-      pcmIndexRef.current = 0;
-      lastTranscribedPcmSampleRef.current = 0;
-
-      const pcmScriptNode = audioCtx.createScriptProcessor(SCRIPT_NODE_BUFFER_SIZE, 1, 1);
-      scriptNodeRef.current = pcmScriptNode;
-
-      const muteGain = audioCtx.createGain();
-      muteGain.gain.value = 0;
-
-      pcmScriptNode.connect(muteGain);
-      muteGain.connect(dest);
-
-      pcmScriptNode.onaudioprocess = (e: AudioProcessingEvent) => {
-        const input = e.inputBuffer.getChannelData(0);
-
-        // Downsample from 48kHz → 16kHz for live transcription
-        const outLen = Math.ceil(input.length / PCM_DOWNSAMPLE_RATIO);
-        const buffer = pcmBufferRef.current;
-        const newLen = pcmIndexRef.current + outLen;
-        if (newLen > buffer.length) {
-          const grow = Math.max(newLen, buffer.length * 1.5) + 32768;
-          const newBuffer = new Float32Array(grow);
-          newBuffer.set(buffer.subarray(0, pcmIndexRef.current));
-          pcmBufferRef.current = newBuffer;
-        }
-        for (let i = 0; i < outLen; i++) {
-          pcmBufferRef.current[pcmIndexRef.current + i] =
-            input[Math.floor(i * PCM_DOWNSAMPLE_RATIO)];
-        }
-        pcmIndexRef.current = newLen;
-      };
-
       let hasAudio = false;
 
       if (audioTracks.length > 0) {
         const sysSource = audioCtx.createMediaStreamSource(displayStream);
-        sysSource.connect(dest);           // Recording path
-        sysSource.connect(pcmScriptNode);  // PCM capture path
+        sysSource.connect(dest);
         hasAudio = true;
         console.log('[ScreenRecorder] System audio added to mix');
       }
 
       if (micStream) {
         const micSource = audioCtx.createMediaStreamSource(micStream);
-        micSource.connect(dest);           // Recording path
-        micSource.connect(pcmScriptNode);  // PCM capture path
+        micSource.connect(dest);
         hasAudio = true;
         console.log('[ScreenRecorder] Mic audio added to mix');
-      }
-
-      // Wire the PCM capture chain only when there's audio
-      if (hasAudio) {
-        pcmScriptNode.connect(muteGain);
-        muteGain.connect(dest);
       }
 
       // Combine video from display with mixed audio
@@ -296,11 +238,6 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
           console.log('[ScreenRecorder] Both recorders stopped, creating final blob. Chunks:', chunksRef.current.length);
           clearTimer();
           stopAudioLevelMeter();
-          // Disconnect scriptNode and its mute gain
-          if (scriptNodeRef.current) {
-            try { scriptNodeRef.current.disconnect(); } catch {}
-            scriptNodeRef.current = null;
-          }
           displayStream.getTracks().forEach((t) => t.stop());
           micStream?.getTracks().forEach((t) => t.stop());
           if (audioCtx.state !== 'closed') {
@@ -415,28 +352,6 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
     return new Blob(chunks, { type: mimeType });
   }, []);
 
-  /** Returns new raw 16kHz mono PCM samples since the last call. */
-  const getPendingAudioPCM = useCallback((): Float32Array | null => {
-    const totalSamples = pcmIndexRef.current;
-    const fromSample = lastTranscribedPcmSampleRef.current;
-    if (fromSample >= totalSamples) return null;
-
-    const newSamples = totalSamples - fromSample;
-    const result = new Float32Array(newSamples);
-    result.set(pcmBufferRef.current.subarray(fromSample, totalSamples));
-    lastTranscribedPcmSampleRef.current = totalSamples;
-    return result;
-  }, []);
-
-  /** Returns all raw 16kHz mono PCM samples captured so far. */
-  const getCompleteAudioPCM = useCallback((): Float32Array | null => {
-    const totalSamples = pcmIndexRef.current;
-    if (totalSamples === 0) return null;
-    const result = new Float32Array(totalSamples);
-    result.set(pcmBufferRef.current.subarray(0, totalSamples));
-    return result;
-  }, []);
-
   const reset = useCallback(() => {
     setState('idle');
     setStream(null);
@@ -448,11 +363,6 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
     chunksRef.current = [];
     audioChunksRef.current = [];
     lastTranscribedAudioChunkIndexRef.current = 0;
-    // Reset PCM buffer
-    pcmBufferRef.current = new Float32Array(0);
-    pcmIndexRef.current = 0;
-    lastTranscribedPcmSampleRef.current = 0;
-    scriptNodeRef.current = null;
   }, []);
 
   return {
@@ -468,7 +378,5 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
     reset,
     getPendingAudioChunksBlob,
     getCompleteAudioBlob,
-    getPendingAudioPCM,
-    getCompleteAudioPCM,
   };
 }

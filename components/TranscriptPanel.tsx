@@ -2,7 +2,7 @@
 
 import React from 'react';
 import type { TranscriptSegment } from '@/lib/srtFormatter';
-import { formatSRT, formatTXT } from '@/lib/srtFormatter';
+import { formatTXT } from '@/lib/srtFormatter';
 
 interface TranscriptPanelProps {
   segments: TranscriptSegment[];
@@ -23,18 +23,6 @@ export default function TranscriptPanel({ segments }: TranscriptPanelProps) {
     URL.revokeObjectURL(url);
   };
 
-  const handleDownloadSRT = () => {
-    const srt = formatSRT(segments);
-    const blob = new Blob([srt], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    a.download = `transcript-${timestamp}.srt`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
   function formatTime(seconds: number): string {
     const h = Math.floor(seconds / 3600);
     const m = Math.floor((seconds % 3600) / 60);
@@ -46,22 +34,13 @@ export default function TranscriptPanel({ segments }: TranscriptPanelProps) {
     <div className="w-full max-w-2xl mx-auto space-y-4">
       <div className="flex items-center justify-between">
         <h3 className="text-lg font-semibold text-zinc-200">Transcript</h3>
-        <div className="flex gap-2">
-          <button
-            onClick={handleDownloadTXT}
-            className="px-4 py-2 text-sm font-medium bg-zinc-800 hover:bg-zinc-700 
-                       text-zinc-300 rounded-lg transition-colors border border-zinc-700"
-          >
-            Download TXT
-          </button>
-          <button
-            onClick={handleDownloadSRT}
-            className="px-4 py-2 text-sm font-medium bg-zinc-800 hover:bg-zinc-700 
-                       text-zinc-300 rounded-lg transition-colors border border-zinc-700"
-          >
-            Download SRT
-          </button>
-        </div>
+        <button
+          onClick={handleDownloadTXT}
+          className="px-4 py-2 text-sm font-medium bg-zinc-800 hover:bg-zinc-700 
+                     text-zinc-300 rounded-lg transition-colors border border-zinc-700"
+        >
+          Download TXT
+        </button>
       </div>
 
       <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl max-h-80 overflow-y-auto">
