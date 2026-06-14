@@ -4,7 +4,7 @@ import { useState, useCallback, useRef } from 'react';
 import { FFmpeg } from '@ffmpeg/ffmpeg';
 import { fetchFile, toBlobURL } from '@ffmpeg/util';
 
-type FFmpegState = 'idle' | 'loading' | 'ready' | 'converting' | 'burning' | 'done' | 'error';
+type FFmpegState = 'idle' | 'loading' | 'ready' | 'converting' | 'done' | 'error';
 
 interface UseFFmpegReturn {
   state: FFmpegState;
@@ -12,7 +12,6 @@ interface UseFFmpegReturn {
   error: string | null;
   loadFFmpeg: () => Promise<void>;
   convertToMP4: (webmBlob: Blob) => Promise<Blob>;
-  burnSubtitles: (videoBlob: Blob, srtContent: string) => Promise<Blob>;
   reset: () => void;
 }
 
@@ -113,74 +112,11 @@ export function useFFmpeg(): UseFFmpegReturn {
     []
   );
 
-  const burnSubtitles = useCallback(
-    async (videoBlob: Blob, srtContent: string): Promise<Blob> => {
-      const ffmpeg = ffmpegRef.current;
-      if (!ffmpeg || !ffmpeg.loaded) {
-        throw new Error('FFmpeg is not loaded yet.');
-      }
-
-      try {
-        setState('burning');
-        setProgress(0);
-
-        // Write video file to virtual filesystem
-        const inputExt = videoBlob.type.includes('mp4') ? 'mp4' : 'webm';
-        await ffmpeg.writeFile(`input.${inputExt}`, await fetchFile(videoBlob));
-
-        // Write SRT subtitle file
-        const encoder = new TextEncoder();
-        await ffmpeg.writeFile('subs.srt', encoder.encode(srtContent));
-
-        // Burn subtitles into video using ASS force_style for clean rendering
-        await ffmpeg.exec([
-          '-i',
-          `input.${inputExt}`,
-          '-vf',
-          "subtitles=subs.srt:force_style='FontSize=22,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=2,Shadow=1,Alignment=2,MarginV=30'",
-          '-c:v',
-          'libx264',
-          '-preset',
-          'fast',
-          '-crf',
-          '18',
-          '-c:a',
-          'copy',
-          'output.mp4',
-        ]);
-
-        const data = await ffmpeg.readFile('output.mp4');
-        const uint8 = data as Uint8Array;
-        const mp4Blob = new Blob([uint8.buffer as ArrayBuffer], {
-          type: 'video/mp4',
-        });
-
-        // Cleanup temp files
-        await ffmpeg.deleteFile(`input.${inputExt}`);
-        await ffmpeg.deleteFile('subs.srt');
-        await ffmpeg.deleteFile('output.mp4');
-
-        setProgress(100);
-        setState('done');
-        return mp4Blob;
-      } catch (err) {
-        const message =
-          err instanceof Error
-            ? `Subtitle burning failed: ${err.message}`
-            : 'Subtitle burning failed.';
-        setError(message);
-        setState('error');
-        throw err;
-      }
-    },
-    []
-  );
-
   const reset = useCallback(() => {
     setState('idle');
     setProgress(0);
     setError(null);
   }, []);
 
-  return { state, progress, error, loadFFmpeg, convertToMP4, burnSubtitles, reset };
+  return { state, progress, error, loadFFmpeg, convertToMP4, reset };
 }

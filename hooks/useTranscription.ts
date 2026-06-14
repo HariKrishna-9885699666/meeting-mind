@@ -1,12 +1,13 @@
 'use client';
 
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { pipeline, env } from '@xenova/transformers';
 import { extractAudioPCM } from '@/lib/audioExtractor';
 import type { TranscriptSegment } from '@/lib/srtFormatter';
 
-// Force loading models from Hugging Face CDN (not localhost)
-env.allowLocalModels = false;
+// Load models from local /models/whisper-model/ folder served by Next.js
+env.allowLocalModels = true;
+env.allowRemoteModels = false;
 
 type TranscriptionState =
   | 'idle'
@@ -15,41 +16,20 @@ type TranscriptionState =
   | 'done'
   | 'error';
 
-interface ModelProgress {
-  status: string;
-  file: string;
-  progress: number;
-  loaded: number;
-  total: number;
-}
-
 interface UseTranscriptionReturn {
   state: TranscriptionState;
   segments: TranscriptSegment[];
-  modelProgress: ModelProgress | null;
   transcriptionProgress: number;
   error: string | null;
   transcribe: (blob: Blob) => Promise<TranscriptSegment[]>;
-  /** Transcribe a short audio chunk and return its segments (for live use). */
-  transcribePartial: (blob: Blob) => Promise<TranscriptSegment[]>;
-  /** Accumulated live transcript segments from partial transcriptions. */
-  liveSegments: TranscriptSegment[];
-  /** Whether a live transcription is currently running. */
-  isLiveTranscribing: boolean;
   reset: () => void;
 }
 
 export function useTranscription(): UseTranscriptionReturn {
   const [state, setState] = useState<TranscriptionState>('idle');
   const [segments, setSegments] = useState<TranscriptSegment[]>([]);
-  const [modelProgress, setModelProgress] = useState<ModelProgress | null>(
-    null
-  );
   const [transcriptionProgress, setTranscriptionProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  const [liveSegments, setLiveSegments] = useState<TranscriptSegment[]>([]);
-  const [isLiveTranscribing, setIsLiveTranscribing] = useState(false);
-  const isLiveTranscribingRef = useRef(false);
   const transcriberRef = useRef<((audio: Float32Array, options: any) => Promise<any>) | null>(null);
 
   /** Ensures the Whisper model is loaded, returning the transcriber function. */
@@ -60,30 +40,16 @@ export function useTranscription(): UseTranscriptionReturn {
 
     const transcriber = await pipeline(
       'automatic-speech-recognition' as const,
-      'Xenova/whisper-tiny',
-      {
-        progress_callback: (p: {
-          status: string;
-          file?: string;
-          progress?: number;
-          loaded?: number;
-          total?: number;
-        }) => {
-          if (p.status === 'progress' || p.status === 'download') {
-            setModelProgress({
-              status: p.status,
-              file: p.file || '',
-              progress: p.progress || 0,
-              loaded: p.loaded || 0,
-              total: p.total || 0,
-            });
-          }
-        },
-      }
+      'whisper-model',
     );
 
     transcriberRef.current = transcriber;
   }, []);
+
+  /** Pre-load the Whisper model on mount so it's ready when recording stops. */
+  useEffect(() => {
+    ensureModel();
+  }, [ensureModel]);
 
   /** Parse the raw Whisper result into TranscriptSegment[]. */
   const parseResult = useCallback((result: any): TranscriptSegment[] => {
@@ -131,54 +97,17 @@ export function useTranscription(): UseTranscriptionReturn {
       // Extract audio PCM from blob
       const audioPCM = await extractAudioPCM(blob);
 
-      // Run transcription with timestamps
-      const result = await transcriberRef.current!(audioPCM, {
-        return_timestamps: true,
-        chunk_length_s: 30,
-        stride_length_s: 5,
-      });
-
-      const rawSegments = parseResult(result);
-
-      setSegments(rawSegments);
-      setTranscriptionProgress(100);
-      setState('done');
-      return rawSegments;
-    } catch (err) {
-      const message =
-        err instanceof Error
-          ? `Transcription failed: ${err.message}`
-          : 'Transcription failed.';
-      setError(message);
-      setState('error');
-      return [];
-    }
-  }, [ensureModel, parseResult]);
-
-  const transcribePartial = useCallback(
-    async (blob: Blob): Promise<TranscriptSegment[]> => {
-      // Guard: skip if already transcribing (ref-based to avoid dependency churn)
-      if (isLiveTranscribingRef.current) return [];
+      // Simulate progress during the blocking Whisper inference.
+      // Ramp from 5% → 95% over estimated time, then snap to 100% on completion.
+      const estimatedSeconds = Math.max(5, audioPCM.length / 16000 * 0.3); // ~0.3x realtime
+      let elapsed = 0;
+      const progressInterval = setInterval(() => {
+        elapsed += 500;
+        const pct = Math.min(95, Math.round((elapsed / (estimatedSeconds * 1000)) * 95));
+        setTranscriptionProgress(pct);
+      }, 500);
 
       try {
-        isLiveTranscribingRef.current = true;
-        setIsLiveTranscribing(true);
-
-        // Ensure model is loaded before processing
-        if (!transcriberRef.current) {
-          await ensureModel();
-        }
-
-        // Extract audio PCM from the short chunk
-        const audioPCM = await extractAudioPCM(blob);
-
-        // Skip if insufficient audio data (less than ~1 second)
-        if (audioPCM.length < 16000) {
-          isLiveTranscribingRef.current = false;
-          setIsLiveTranscribing(false);
-          return [];
-        }
-
         // Run transcription with timestamps
         const result = await transcriberRef.current!(audioPCM, {
           return_timestamps: true,
@@ -186,38 +115,30 @@ export function useTranscription(): UseTranscriptionReturn {
           stride_length_s: 5,
         });
 
-        const newSegments = parseResult(result);
+        const rawSegments = parseResult(result);
 
-        // Accumulate into liveSegments (timestamp-based dedup)
-        if (newSegments.length > 0) {
-          setLiveSegments((prev) => {
-            const lastEnd = prev.length > 0 ? prev[prev.length - 1].timestamp[1] : 0;
-            // Only keep segments that start after the last segment's end time
-            const distinct = newSegments.filter(
-              (seg) => seg.timestamp[0] >= lastEnd - 0.5 // 0.5s overlap tolerance
-            );
-            return distinct.length > 0 ? [...prev, ...distinct] : prev;
-          });
-        }
-
-        isLiveTranscribingRef.current = false;
-        setIsLiveTranscribing(false);
-        return newSegments;
-      } catch (err) {
-        console.error('Live transcription error:', err);
-        isLiveTranscribingRef.current = false;
-        setIsLiveTranscribing(false);
-        return [];
+        setSegments(rawSegments);
+        setTranscriptionProgress(100);
+        setState('done');
+        return rawSegments;
+      } finally {
+        clearInterval(progressInterval);
       }
-    },
-    [ensureModel, parseResult]
-  );
+    } catch (err) {
+      const message =
+        err instanceof Error
+          ? `Transcription failed: ${err.message}`
+          : 'Transcription failed.';
+      setError(message);
+      setTranscriptionProgress(0);
+      setState('error');
+      return [];
+    }
+  }, [ensureModel, parseResult]);
 
   const reset = useCallback(() => {
     setState('idle');
     setSegments([]);
-    setLiveSegments([]);
-    setModelProgress(null);
     setTranscriptionProgress(0);
     setError(null);
     // Keep the model in cache for next use
@@ -226,13 +147,9 @@ export function useTranscription(): UseTranscriptionReturn {
   return {
     state,
     segments,
-    modelProgress,
     transcriptionProgress,
     error,
     transcribe,
-    transcribePartial,
-    liveSegments,
-    isLiveTranscribing,
     reset,
   };
 }

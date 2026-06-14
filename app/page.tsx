@@ -12,7 +12,7 @@ import FloatingInfoButton from '@/components/FloatingInfoButton';
 import { useScreenRecorder } from '@/hooks/useScreenRecorder';
 import { useFFmpeg } from '@/hooks/useFFmpeg';
 import { useTranscription } from '@/hooks/useTranscription';
-import { formatSRT, type TranscriptSegment } from '@/lib/srtFormatter';
+import type { TranscriptSegment } from '@/lib/srtFormatter';
 
 type AppState = 'idle' | 'requesting' | 'recording' | 'processing' | 'done' | 'error';
 
@@ -94,30 +94,15 @@ export default function Home() {
       }
 
       // Wait for both to complete
-      const [mp4Blob, segments] = await Promise.all([
+      const [mp4Blob] = await Promise.all([
         conversionPromise,
-        transcriptionPromise || Promise.resolve(trans.liveSegments),
+        transcriptionPromise || Promise.resolve([]),
       ]);
 
       // Check if a newer processing run has started
       if (processingGenerationRef.current !== generation) return;
 
-      // Burn subtitles into video if we have segments
-      let finalBlob = mp4Blob;
-      if (segments.length > 0) {
-        const srtContent = formatSRT(segments);
-        try {
-          finalBlob = await ffm.burnSubtitles(mp4Blob, srtContent);
-        } catch (err) {
-          console.error('[Process] Subtitle burning failed, showing video without subtitles:', err);
-          // Continue with original video if burning fails
-        }
-      }
-
-      // Final generation check
-      if (processingGenerationRef.current !== generation) return;
-
-      setMp4Blob(finalBlob);
+      setMp4Blob(mp4Blob);
       setAppState('done');
     } catch (err) {
       if (processingGenerationRef.current !== generation) return;
@@ -150,12 +135,7 @@ export default function Home() {
     recorder.reset();
   }, [ffmpeg, transcription, recorder]);
 
-  const displaySegments: TranscriptSegment[] =
-    appState === 'recording'
-      ? transcription.liveSegments
-      : transcription.liveSegments.length > 0
-        ? transcription.liveSegments
-        : transcription.segments;
+  const displaySegments: TranscriptSegment[] = transcription.segments;
 
   const formatTime = (seconds: number): string => {
     const m = Math.floor(seconds / 60);
@@ -300,12 +280,7 @@ export default function Home() {
             <div className="mt-6 bg-zinc-900/40 border border-zinc-800/50 rounded-2xl p-5 max-h-52 overflow-y-auto">
               <div className="flex items-center justify-between mb-3">
                 <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">Live Transcript</p>
-                {transcription.isLiveTranscribing && (
-                  <div className="flex items-center gap-1.5">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                    <span className="text-[10px] text-zinc-500">transcribing</span>
-                  </div>
-                )}
+
               </div>
               {displaySegments.length === 0 ? (
                 <div className="flex items-center gap-2">
@@ -351,24 +326,9 @@ export default function Home() {
               ffmpegState={ffmpeg.state}
               transcriptionState={transcription.state}
               transcriptionProgress={transcription.transcriptionProgress}
-              modelProgress={transcription.modelProgress}
             />
 
-            {transcription.liveSegments.length > 0 && (
-              <div className="mt-8 bg-zinc-900/40 border border-zinc-800/50 rounded-2xl p-5 max-h-40 overflow-y-auto text-left">
-                <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-3">Transcript</p>
-                <div className="space-y-1.5">
-                  {transcription.liveSegments.map((seg, i) => (
-                    <div key={i} className="flex gap-2.5 text-sm">
-                      <span className="text-[11px] font-mono text-zinc-600 whitespace-nowrap pt-0.5 min-w-[40px]">
-                        {formatTime(seg.timestamp[0])}
-                      </span>
-                      <p className="text-zinc-300 leading-relaxed">{seg.text}</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
+
           </div>
         )}
 
