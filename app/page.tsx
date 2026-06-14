@@ -16,7 +16,6 @@ import { formatSRT, type TranscriptSegment } from '@/lib/srtFormatter';
 
 type AppState = 'idle' | 'requesting' | 'recording' | 'processing' | 'done' | 'error';
 
-const LIVE_TRANSCRIPT_INTERVAL_SECONDS = 12;
 
 export default function Home() {
   const recorder = useScreenRecorder();
@@ -36,22 +35,7 @@ export default function Home() {
   transcriptionRef.current = transcription;
   recorderRef.current = recorder;
 
-  const liveTranscriptionTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const pendingTranscriptionRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const processingGenerationRef = useRef(0);
-
-  useEffect(() => {
-    return () => {
-      if (liveTranscriptionTimerRef.current) {
-        clearInterval(liveTranscriptionTimerRef.current);
-        liveTranscriptionTimerRef.current = null;
-      }
-      if (pendingTranscriptionRef.current) {
-        clearTimeout(pendingTranscriptionRef.current);
-        pendingTranscriptionRef.current = null;
-      }
-    };
-  }, []);
 
   // React to recorder state changes
   useEffect(() => {
@@ -61,10 +45,10 @@ export default function Home() {
         break;
       case 'recording':
         setAppState('recording');
-        startLiveTranscription();
+        // Live transcription disabled — Whisper inference blocks the main
+        // thread and freezes the UI. Full transcription runs after recording stops.
         break;
       case 'stopped':
-        stopLiveTranscription();
         if (recorder.recordedBlob) {
           handleRecordingStopped(recorder.recordedBlob);
         }
@@ -78,26 +62,7 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recorder.state]);
 
-  const startLiveTranscription = useCallback(() => {
-    if (liveTranscriptionTimerRef.current) {
-      clearInterval(liveTranscriptionTimerRef.current);
-    }
-    liveTranscriptionTimerRef.current = setInterval(async () => {
-      const rec = recorderRef.current;
-      const trans = transcriptionRef.current;
-      if (trans.isLiveTranscribing) return;
-      const blob = rec.getPendingAudioChunksBlob();
-      if (!blob) return;
-      await trans.transcribePartial(blob);
-    }, LIVE_TRANSCRIPT_INTERVAL_SECONDS * 1000);
-  }, []);
 
-  const stopLiveTranscription = useCallback(() => {
-    if (liveTranscriptionTimerRef.current) {
-      clearInterval(liveTranscriptionTimerRef.current);
-      liveTranscriptionTimerRef.current = null;
-    }
-  }, []);
 
   // Called directly when recording stops — no ref/useEffect indirection
   const handleRecordingStopped = useCallback(async (blob: Blob) => {
@@ -119,13 +84,13 @@ export default function Home() {
         ? Promise.resolve(blob)
         : ffm.convertToMP4(blob);
 
+      // Always run full transcription for accurate results — live segments
+      // are partial and may miss content between 12-second intervals.
       let transcriptionPromise: Promise<TranscriptSegment[]> | null = null;
-      if (trans.liveSegments.length === 0) {
-        const rec = recorderRef.current;
-        const audioBlob = rec.getCompleteAudioBlob();
-        if (audioBlob) {
-          transcriptionPromise = trans.transcribe(audioBlob);
-        }
+      const rec = recorderRef.current;
+      const audioBlob = rec.getCompleteAudioBlob();
+      if (audioBlob && audioBlob.size > 0) {
+        transcriptionPromise = trans.transcribe(audioBlob);
       }
 
       // Wait for both to complete
@@ -163,11 +128,6 @@ export default function Home() {
   }, []);
 
   const handleStartRecording = useCallback(async () => {
-    // Clear any pending background transcription
-    if (pendingTranscriptionRef.current) {
-      clearTimeout(pendingTranscriptionRef.current);
-      pendingTranscriptionRef.current = null;
-    }
     processingGenerationRef.current++;
     setErrorMessage(null);
     setMp4Blob(null);
@@ -181,11 +141,6 @@ export default function Home() {
   }, [recorder]);
 
   const handleRecordAgain = useCallback(() => {
-    // Clear any pending background transcription
-    if (pendingTranscriptionRef.current) {
-      clearTimeout(pendingTranscriptionRef.current);
-      pendingTranscriptionRef.current = null;
-    }
     processingGenerationRef.current++;
     setAppState('idle');
     setMp4Blob(null);
@@ -354,11 +309,9 @@ export default function Home() {
               </div>
               {displaySegments.length === 0 ? (
                 <div className="flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-zinc-600 animate-pulse" />
+                  <span className="w-2 h-2 rounded-full bg-zinc-600" />
                   <span className="text-sm text-zinc-600 italic">
-                    {transcription.state === 'loading-model'
-                      ? 'Loading transcription model...'
-                      : 'Transcript will appear shortly...'}
+                    Transcript will be generated after recording stops
                   </span>
                 </div>
               ) : (

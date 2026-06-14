@@ -190,7 +190,7 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 
       const videoRecorder = new MediaRecorder(combinedStream, {
         mimeType: videoMimeType,
-        videoBitsPerSecond: is4K ? 12_000_000 : 6_000_000, // 12 Mbps for 4K, 6 Mbps for 1080p
+        videoBitsPerSecond: is4K ? 8_000_000 : 4_000_000, // 8 Mbps for 4K, 4 Mbps for 1080p — lower to avoid encoder backpressure that causes stuttering
         audioBitsPerSecond: 192_000,
       });
       mediaRecorderRef.current = videoRecorder;
@@ -220,6 +220,11 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
           if (e.data.size > 0) {
             audioChunksRef.current.push(e.data);
           }
+        };
+        audioRecorder.onerror = () => {
+          console.warn('[ScreenRecorder] Audio recorder error, treating as stopped');
+          audioRecorderStopped = true;
+          checkBothStopped();
         };
       }
 

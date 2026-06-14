@@ -60,7 +60,7 @@ export function useTranscription(): UseTranscriptionReturn {
 
     const transcriber = await pipeline(
       'automatic-speech-recognition' as const,
-      'Xenova/whisper-base',
+      'Xenova/whisper-tiny',
       {
         progress_callback: (p: {
           status: string;
