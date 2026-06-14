@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useRef } from 'react';
+import React, { useRef, useEffect, useState } from 'react';
 
 interface VideoPreviewProps {
   blob: Blob;
@@ -8,27 +8,15 @@ interface VideoPreviewProps {
 
 export default function VideoPreview({ blob }: VideoPreviewProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
-  // Track the previous blob to avoid recreating URL on every render
-  const blobRef = useRef(blob);
-  const urlRef = useRef<string | null>(null);
+  const [url, setUrl] = useState<string | null>(null);
 
-  // Only recreate URL when blob reference changes
-  if (blob !== blobRef.current) {
-    if (urlRef.current) {
-      URL.revokeObjectURL(urlRef.current);
-    }
-    urlRef.current = URL.createObjectURL(blob);
-    blobRef.current = blob;
-  } else if (!urlRef.current) {
-    urlRef.current = URL.createObjectURL(blob);
-  }
-
-  const url = urlRef.current;
-
-  // No cleanup effect — the ref-based blob comparison above handles revoking old URLs
-  // when the blob reference changes. On component unmount (Record Again), the blob URL
-  // is released by the browser when the page is refreshed or navigated away.
-  // This avoids React Strict Mode double-invoke issues entirely.
+  useEffect(() => {
+    const newUrl = URL.createObjectURL(blob);
+    setUrl(newUrl);
+    return () => {
+      URL.revokeObjectURL(newUrl);
+    };
+  }, [blob]);
 
   const handleDownload = () => {
     // Create a fresh URL for download to ensure it works even if urlRef is somehow stale
@@ -43,13 +31,19 @@ export default function VideoPreview({ blob }: VideoPreviewProps) {
   return (
     <div className="w-full max-w-2xl mx-auto space-y-4">
       <div className="relative rounded-xl overflow-hidden bg-black border border-zinc-800 shadow-2xl">
-        <video
-          ref={videoRef}
-          src={url}
-          controls
-          className="w-full max-h-[480px] object-contain"
-          preload="auto"
-        />
+        {url ? (
+          <video
+            ref={videoRef}
+            src={url}
+            controls
+            className="w-full max-h-[480px] object-contain"
+            preload="auto"
+          />
+        ) : (
+          <div className="w-full h-64 flex items-center justify-center">
+            <div className="w-6 h-6 border-2 border-zinc-500 border-t-transparent rounded-full animate-spin" />
+          </div>
+        )}
       </div>
       <button
         onClick={handleDownload}

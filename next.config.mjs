@@ -11,24 +11,14 @@ const nextConfig = {
       },
     ];
   },
-  webpack: (config, { isServer }) => {
-    if (!isServer) {
-      config.resolve.fallback = {
-        ...config.resolve.fallback,
-        fs: false,
-        path: false,
-        os: false,
-        crypto: false,
-      };
-    }
-
-    // Ignore .node binary files (from onnxruntime-node) – not needed in browser
-    config.module.rules.push({
-      test: /\.node$/,
-      use: 'ignore-loader',
-    });
-
-    return config;
+  serverExternalPackages: ['onnxruntime-node'],
+  turbopack: {
+    resolveAlias: {
+      fs: './lib/empty-module.js',
+      // Use path-browserify instead of empty module — @ffmpeg/util needs path.posix.join()
+      path: 'path-browserify',
+      url: './lib/empty-module.js',
+    },
   },
 };
 

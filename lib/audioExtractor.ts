@@ -31,9 +31,7 @@ export async function extractAudioPCM(blob: Blob): Promise<Float32Array> {
 
   // Resample to 16kHz using OfflineAudioContext for proper interpolation
   const targetSampleRate = 16000;
-  const targetLength = Math.round(
-    (originalLength * targetSampleRate) / originalSampleRate
-  );
+  const targetLength = Math.round((originalLength * targetSampleRate) / originalSampleRate);
 
   const offlineCtx = new OfflineAudioContext(1, targetLength, targetSampleRate);
   const buffer = offlineCtx.createBuffer(1, monoPCM.length, originalSampleRate);

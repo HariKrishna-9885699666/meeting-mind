@@ -23,19 +23,19 @@ A zero-backend, browser-based screen recorder that captures your screen with sys
 
 ## Tech Stack
 
-| Layer | Technology |
-|-------|------------|
-| Framework | Next.js 14 (App Router) |
-| Language | TypeScript |
-| Screen Capture | `getDisplayMedia()` Web API |
-| Audio Capture | `getDisplayMedia({ audio: true })` + `getUserMedia()` |
-| Audio Mixing | Web Audio API (`AudioContext` + `MediaStreamAudioDestinationNode`) |
-| Recording | `MediaRecorder` API (dual: video + audio-only for live transcription) |
-| Video Codecs | MP4 (H.264/AAC) preferred, WebM (VP9 → VP8) fallback |
-| FFmpeg Conversion | `@ffmpeg/ffmpeg` + `@ffmpeg/util` (WASM, self-hosted from `/ffmpeg/`) |
-| Transcription | `@xenova/transformers` (Whisper base via ONNX Runtime Web) |
-| Styling | Tailwind CSS v3 + custom CSS (glassmorphism, shimmer, modal animations) |
-| State | React `useState` / `useRef` / `useCallback` |
+| Layer             | Technology                                                              |
+| ----------------- | ----------------------------------------------------------------------- |
+| Framework         | Next.js 14 (App Router)                                                 |
+| Language          | TypeScript                                                              |
+| Screen Capture    | `getDisplayMedia()` Web API                                             |
+| Audio Capture     | `getDisplayMedia({ audio: true })` + `getUserMedia()`                   |
+| Audio Mixing      | Web Audio API (`AudioContext` + `MediaStreamAudioDestinationNode`)      |
+| Recording         | `MediaRecorder` API (dual: video + audio-only for live transcription)   |
+| Video Codecs      | MP4 (H.264/AAC) preferred, WebM (VP9 → VP8) fallback                    |
+| FFmpeg Conversion | `@ffmpeg/ffmpeg` + `@ffmpeg/util` (WASM, self-hosted from `/ffmpeg/`)   |
+| Transcription     | `@xenova/transformers` (Whisper base via ONNX Runtime Web)              |
+| Styling           | Tailwind CSS v3 + custom CSS (glassmorphism, shimmer, modal animations) |
+| State             | React `useState` / `useRef` / `useCallback`                             |
 
 ## Getting Started
 
@@ -117,24 +117,24 @@ getDisplayMedia() + getUserMedia()
 
 ## App States
 
-| State | UI |
-|---|---|
-| `idle` | Resolution toggle pill (1080p / 4K), large Record button with pulsing glow ring, 3 feature cards (resolution, system audio, AI transcript), header with logo + "All local · No uploads" badge |
-| `requesting` | Spinner + "Waiting for screen selection..." — system picker is open |
-| `recording` | Glass recording bar with REC indicator + timer + audio visualizer, Stop button with "Esc to stop" hint, live transcript panel (updates every 12s) |
-| `processing` | (WebM fallback only) Spinner + FFmpeg conversion progress bar + model download / transcription progress — MP4 path skips this entirely |
-| `done` | Video player with download MP4 button, transcript panel with TXT/SRT download buttons, "Record Another Video" button |
-| `error` | Inline red banner with error message + "Try again →" button |
+| State        | UI                                                                                                                                                                                            |
+| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `idle`       | Resolution toggle pill (1080p / 4K), large Record button with pulsing glow ring, 3 feature cards (resolution, system audio, AI transcript), header with logo + "All local · No uploads" badge |
+| `requesting` | Spinner + "Waiting for screen selection..." — system picker is open                                                                                                                           |
+| `recording`  | Glass recording bar with REC indicator + timer + audio visualizer, Stop button with "Esc to stop" hint, live transcript panel (updates every 12s)                                             |
+| `processing` | (WebM fallback only) Spinner + FFmpeg conversion progress bar + model download / transcription progress — MP4 path skips this entirely                                                        |
+| `done`       | Video player with download MP4 button, transcript panel with TXT/SRT download buttons, "Record Another Video" button                                                                          |
+| `error`      | Inline red banner with error message + "Try again →" button                                                                                                                                   |
 
 ## Browser Support
 
-| Browser | Supported | Notes |
-|---------|-----------|-------|
-| Chrome 94+ | ✅ Full support | Native MP4 recording, system audio, WASM SIMD |
-| Edge 94+ | ✅ Full support | Native MP4 recording, system audio, WASM SIMD |
-| Firefox | ❌ No system audio | `getDisplayMedia` lacks system audio support |
-| Safari | ❌ No support | No `getDisplayMedia` system audio, no SharedArrayBuffer |
-| Mobile | ❌ Desktop only | Requires desktop browser APIs |
+| Browser    | Supported          | Notes                                                   |
+| ---------- | ------------------ | ------------------------------------------------------- |
+| Chrome 94+ | ✅ Full support    | Native MP4 recording, system audio, WASM SIMD           |
+| Edge 94+   | ✅ Full support    | Native MP4 recording, system audio, WASM SIMD           |
+| Firefox    | ❌ No system audio | `getDisplayMedia` lacks system audio support            |
+| Safari     | ❌ No support      | No `getDisplayMedia` system audio, no SharedArrayBuffer |
+| Mobile     | ❌ Desktop only    | Requires desktop browser APIs                           |
 
 > **macOS note:** Chrome on macOS cannot capture system audio due to OS restrictions. MeetMind will fall back to microphone-only with a visible warning ("No system audio" badge in the audio meter).
 
@@ -181,8 +181,8 @@ FFmpeg WASM requires `SharedArrayBuffer`, which needs cross-origin isolation hea
 ```js
 headers: [
   { key: 'Cross-Origin-Opener-Policy', value: 'same-origin' },
-  { key: 'Cross-Origin-Embedder-Policy', value: 'require-corp' }
-]
+  { key: 'Cross-Origin-Embedder-Policy', value: 'require-corp' },
+];
 ```
 
 ### Vercel Deployment
@@ -229,7 +229,8 @@ MIT
 ## Author
 
 **Hari Krishna Anem**  
-B.Tech (CSIT) | Hyderabad, India  
+B.Tech (CSIT) | Hyderabad, India
+
 - GitHub: [@HariKrishna-9885699666](https://github.com/HariKrishna-9885699666)
 - LinkedIn: [anemharikrishna](https://linkedin.com/in/anemharikrishna)
 - Blog: [@HariKrishna-9885699666](https://hashnode.com/@HariKrishna-9885699666)

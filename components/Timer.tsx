@@ -20,9 +20,7 @@ export default function Timer({ elapsedSeconds }: TimerProps) {
           <span className="absolute inset-0 rounded-full bg-red-500 animate-ping opacity-75" />
           <span className="relative w-2.5 h-2.5 rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.6)]" />
         </span>
-        <span className="text-xs font-bold text-red-400 uppercase tracking-[0.15em]">
-          REC
-        </span>
+        <span className="text-xs font-bold text-red-400 uppercase tracking-[0.15em]">REC</span>
       </div>
       <span className="text-3xl font-mono font-bold text-zinc-100 tabular-nums tracking-wider">
         {timeString}
