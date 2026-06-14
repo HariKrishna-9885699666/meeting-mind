@@ -83,7 +83,8 @@ export function useFFmpeg(): UseFFmpegReturn {
 
       const data = await ffmpeg.readFile('output.mp4');
       const uint8 = data as Uint8Array;
-      const mp4Blob = new Blob([uint8], { type: 'video/mp4' });
+      const copy = new Uint8Array(uint8);
+      const mp4Blob = new Blob([copy], { type: 'video/mp4' });
 
       // Cleanup temp files
       await ffmpeg.deleteFile('input.webm');

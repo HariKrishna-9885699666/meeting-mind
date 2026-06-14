@@ -99,33 +99,51 @@ export function useTranscription(): UseTranscriptionReturn {
         // Extract audio PCM from blob
         const audioPCM = await extractAudioPCM(blob);
 
-        // Simulate progress during the blocking Whisper inference.
-        // Ramp from 5% → 95% over estimated time, then snap to 100% on completion.
-        const estimatedSeconds = Math.max(5, (audioPCM.length / 16000) * 0.3); // ~0.3x realtime
-        let elapsed = 0;
-        const progressInterval = setInterval(() => {
-          elapsed += 500;
-          const pct = Math.min(95, Math.round((elapsed / (estimatedSeconds * 1000)) * 95));
-          setTranscriptionProgress(pct);
-        }, 500);
+        const SAMPLE_RATE = 16000;
+        const CHUNK_SECONDS = 30;
+        const CHUNK_SIZE = CHUNK_SECONDS * SAMPLE_RATE;
+        const totalChunks = Math.ceil(audioPCM.length / CHUNK_SIZE);
+        const allSegments: TranscriptSegment[] = [];
+        let processedSamples = 0;
 
-        try {
-          // Run transcription with timestamps
-          const result = await transcriberRef.current!(audioPCM, {
+        setTranscriptionProgress(0);
+
+        for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {
+          const start = chunkIndex * CHUNK_SIZE;
+          const end = Math.min(start + CHUNK_SIZE, audioPCM.length);
+          const chunk = audioPCM.slice(start, end);
+
+          // Transcribe this chunk
+          const result = await transcriberRef.current!(chunk, {
             return_timestamps: true,
-            chunk_length_s: 30,
-            stride_length_s: 5,
           });
 
-          const rawSegments = parseResult(result);
+          // Offset timestamps by the chunk's start time (in seconds)
+          const offsetSeconds = start / SAMPLE_RATE;
+          for (const seg of parseResult(result)) {
+            allSegments.push({
+              timestamp: [
+                seg.timestamp[0] + offsetSeconds,
+                seg.timestamp[1] + offsetSeconds,
+              ],
+              text: seg.text,
+            });
+          }
 
-          setSegments(rawSegments);
-          setTranscriptionProgress(100);
-          setState('done');
-          return rawSegments;
-        } finally {
-          clearInterval(progressInterval);
+          processedSamples += chunk.length;
+
+          // Update real progress (percentage of audio processed)
+          const pct = Math.min(95, Math.round((processedSamples / audioPCM.length) * 95));
+          setTranscriptionProgress(pct);
+
+          // Yield to the event loop so the UI can repaint and handle clicks
+          await new Promise<void>((r) => setTimeout(r, 0));
         }
+
+        setSegments(allSegments);
+        setTranscriptionProgress(100);
+        setState('done');
+        return allSegments;
       } catch (err) {
         const message =
           err instanceof Error ? `Transcription failed: ${err.message}` : 'Transcription failed.';
