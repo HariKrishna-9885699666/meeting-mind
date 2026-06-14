@@ -12,6 +12,7 @@ import FloatingInfoButton from '@/components/FloatingInfoButton';
 import { useScreenRecorder } from '@/hooks/useScreenRecorder';
 import { useFFmpeg } from '@/hooks/useFFmpeg';
 import { useTranscription } from '@/hooks/useTranscription';
+import { useLiveTranscription } from '@/hooks/useLiveTranscription';
 import type { TranscriptSegment } from '@/lib/srtFormatter';
 
 type AppState = 'idle' | 'requesting' | 'recording' | 'processing' | 'done' | 'error';
@@ -21,6 +22,7 @@ export default function Home() {
   const recorder = useScreenRecorder();
   const ffmpeg = useFFmpeg();
   const transcription = useTranscription();
+  const liveTranscription = useLiveTranscription();
 
   const [appState, setAppState] = useState<AppState>('idle');
   const [mp4Blob, setMp4Blob] = useState<Blob | null>(null);
@@ -31,9 +33,13 @@ export default function Home() {
   const ffmpegRef = useRef(ffmpeg);
   const transcriptionRef = useRef(transcription);
   const recorderRef = useRef(recorder);
+  const liveTranscriptionRef = useRef(liveTranscription);
   ffmpegRef.current = ffmpeg;
   transcriptionRef.current = transcription;
   recorderRef.current = recorder;
+  liveTranscriptionRef.current = liveTranscription;
+
+  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const processingGenerationRef = useRef(0);
 
@@ -45,8 +51,6 @@ export default function Home() {
         break;
       case 'recording':
         setAppState('recording');
-        // Live transcription disabled — Whisper inference blocks the main
-        // thread and freezes the UI. Full transcription runs after recording stops.
         break;
       case 'stopped':
         if (recorder.recordedBlob) {
@@ -60,6 +64,26 @@ export default function Home() {
       setAppState('error');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recorder.state]);
+
+  // Live transcription lifecycle — runs Whisper in a Web Worker so the UI stays responsive
+  useEffect(() => {
+    if (recorder.state === 'recording') {
+      liveTranscriptionRef.current.init().catch(console.error);
+
+      const interval = setInterval(() => {
+        const pcm = recorderRef.current.getPendingAudioPCM();
+        if (pcm) {
+          liveTranscriptionRef.current.transcribeChunk(pcm);
+        }
+      }, 5000);
+      pollIntervalRef.current = interval;
+
+      return () => {
+        clearInterval(interval);
+        pollIntervalRef.current = null;
+      };
+    }
   }, [recorder.state]);
 
 
@@ -133,9 +157,13 @@ export default function Home() {
     ffmpeg.reset();
     transcription.reset();
     recorder.reset();
-  }, [ffmpeg, transcription, recorder]);
+    liveTranscription.terminate();
+  }, [ffmpeg, transcription, recorder, liveTranscription]);
 
-  const displaySegments: TranscriptSegment[] = transcription.segments;
+  const displaySegments: TranscriptSegment[] =
+    appState === 'recording'
+      ? liveTranscription.segments
+      : transcription.segments;
 
   const formatTime = (seconds: number): string => {
     const m = Math.floor(seconds / 60);
@@ -286,7 +314,9 @@ export default function Home() {
                 <div className="flex items-center gap-2">
                   <span className="w-2 h-2 rounded-full bg-zinc-600" />
                   <span className="text-sm text-zinc-600 italic">
-                    Transcript will be generated after recording stops
+                    {liveTranscription.isReady
+                      ? 'Waiting for speech...'
+                      : 'Loading speech model...'}
                   </span>
                 </div>
               ) : (

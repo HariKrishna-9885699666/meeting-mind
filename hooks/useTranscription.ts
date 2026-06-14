@@ -5,9 +5,9 @@ import { pipeline, env } from '@xenova/transformers';
 import { extractAudioPCM } from '@/lib/audioExtractor';
 import type { TranscriptSegment } from '@/lib/srtFormatter';
 
-// Load models from local /models/whisper-model/ folder served by Next.js
+// Load models — prefer local cache, fall back to Hugging Face Hub
 env.allowLocalModels = true;
-env.allowRemoteModels = false;
+env.allowRemoteModels = true;
 
 type TranscriptionState =
   | 'idle'
@@ -40,7 +40,7 @@ export function useTranscription(): UseTranscriptionReturn {
 
     const transcriber = await pipeline(
       'automatic-speech-recognition' as const,
-      'whisper-model',
+      'Xenova/whisper-base',
     );
 
     transcriberRef.current = transcriber;
