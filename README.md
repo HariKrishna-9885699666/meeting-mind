@@ -2,7 +2,7 @@
 
 A zero-backend, browser-based screen recorder that captures your screen with system audio, mixes in microphone input, and generates AI-powered transcripts — all running locally in your browser. No uploads, no cloud, no subscriptions.
 
-![MeetMind Preview](https://raw.githubusercontent.com/HariKrishna-9885699666/meeting-mind/main/public/og-image.png)
+![MeetMind Preview](https://github.com/HariKrishna-9885699666/meeting-mind/blob/main/public/og-image.png?raw=true)
 
 ## Features
 
