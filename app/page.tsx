@@ -23,6 +23,7 @@ export default function Home() {
   const [processingError, setProcessingError] = useState<string | null>(null);
   const [processingPhase, setProcessingPhase] = useState<'idle' | 'processing' | 'done'>('idle');
   const [selectedResolution, setSelectedResolution] = useState<'1080p' | '4K'>('4K');
+  const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
 
   const processingGenerationRef = useRef(0);
 
@@ -43,12 +44,10 @@ export default function Home() {
           await ffmpeg.loadFFmpeg();
         }
 
-        // Start transcription in the background (doesn't block the UI)
-        const audioBlob = recorder.getCompleteAudioBlob();
-        if (audioBlob && audioBlob.size > 0) {
-          transcription.transcribe(audioBlob).catch((err) => {
-            console.error('[Transcription] Background transcription failed:', err);
-          });
+        // Save audio blob for manual transcription (user clicks "Transcribe" button)
+        const audio = recorder.getCompleteAudioBlob();
+        if (audio && audio.size > 0) {
+          setAudioBlob(audio);
         }
 
         // Convert video — show preview as soon as this finishes
@@ -82,6 +81,7 @@ export default function Home() {
     processingGenerationRef.current++;
     setProcessingError(null);
     setMp4Blob(null);
+    setAudioBlob(null);
     setProcessingPhase('idle');
     ffmpeg.reset();
     transcription.reset();
@@ -92,10 +92,19 @@ export default function Home() {
     recorder.stopRecording();
   }, [recorder]);
 
+  const handleTranscribe = useCallback(() => {
+    if (audioBlob) {
+      transcription.transcribe(audioBlob).catch((err) => {
+        console.error('[Transcription] Transcription failed:', err);
+      });
+    }
+  }, [audioBlob, transcription]);
+
   const handleRecordAgain = useCallback(() => {
     processingGenerationRef.current++;
     setProcessingPhase('idle');
     setMp4Blob(null);
+    setAudioBlob(null);
     setProcessingError(null);
     ffmpeg.reset();
     transcription.reset();
@@ -317,15 +326,34 @@ export default function Home() {
         {isDone && (
           <div className="w-full max-w-2xl mx-auto space-y-8">
             <VideoPreview blob={mp4Blob} />
-            {displaySegments.length > 0 ? (
-              <TranscriptPanel segments={displaySegments} />
-            ) : transcription.state !== 'idle' && transcription.state !== 'done' ? (
+            {transcription.state === 'idle' && audioBlob ? (
+              <div className="flex justify-center">
+                <button
+                  onClick={handleTranscribe}
+                  className="group flex items-center gap-3 px-8 py-4
+                             bg-gradient-to-r from-emerald-600 to-teal-600
+                             hover:from-emerald-500 hover:to-teal-500
+                             text-white font-semibold rounded-2xl
+                             transition-all duration-200 shadow-xl shadow-emerald-600/20
+                             hover:shadow-emerald-500/30 active:scale-[0.99]
+                             border border-emerald-400/20 hover:border-emerald-400/30"
+                >
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                      d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+                  </svg>
+                  <span className="text-base">Transcribe Audio</span>
+                </button>
+              </div>
+            ) : transcription.state === 'loading-model' || transcription.state === 'transcribing' ? (
               <div className="bg-zinc-900/40 border border-zinc-800/50 rounded-2xl p-5">
                 <div className="flex items-center justify-center gap-2">
                   <div className="w-4 h-4 border-2 border-zinc-500 border-t-transparent rounded-full animate-spin" />
                   <p className="text-sm text-zinc-500">Transcribing audio...</p>
                 </div>
               </div>
+            ) : transcription.state === 'done' && displaySegments.length > 0 ? (
+              <TranscriptPanel segments={displaySegments} />
             ) : null}
 
             <div className="flex justify-center">
