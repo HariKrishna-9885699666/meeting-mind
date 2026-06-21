@@ -6,30 +6,23 @@ import AudioMeter from '@/components/AudioMeter';
 import Timer from '@/components/Timer';
 import ProgressPanel from '@/components/ProgressPanel';
 import VideoPreview from '@/components/VideoPreview';
-import TranscriptPanel from '@/components/TranscriptPanel';
 import KeyboardHandler from '@/components/KeyboardHandler';
 import FloatingInfoButton from '@/components/FloatingInfoButton';
 import { useScreenRecorder } from '@/hooks/useScreenRecorder';
 import { useFFmpeg } from '@/hooks/useFFmpeg';
-import { useTranscription } from '@/hooks/useTranscription';
-import type { TranscriptSegment } from '@/lib/srtFormatter';
 
 export default function Home() {
   const recorder = useScreenRecorder();
   const ffmpeg = useFFmpeg();
-  const transcription = useTranscription();
 
   const [mp4Blob, setMp4Blob] = useState<Blob | null>(null);
   const [processingError, setProcessingError] = useState<string | null>(null);
   const [processingPhase, setProcessingPhase] = useState<'idle' | 'processing' | 'done'>('idle');
   const [selectedResolution, setSelectedResolution] = useState<'1080p' | '4K'>('4K');
-  const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
 
   const processingGenerationRef = useRef(0);
 
   const errorMessage = recorder.error ?? processingError;
-
-  const displaySegments: TranscriptSegment[] = transcription.segments;
 
   const handleRecordingStopped = useCallback(
     async (blob: Blob) => {
@@ -42,12 +35,6 @@ export default function Home() {
         // Ensure FFmpeg is loaded
         if (ffmpeg.state === 'idle') {
           await ffmpeg.loadFFmpeg();
-        }
-
-        // Save audio blob for manual transcription (user clicks "Transcribe" button)
-        const audio = recorder.getCompleteAudioBlob();
-        if (audio && audio.size > 0) {
-          setAudioBlob(audio);
         }
 
         // Convert video — show preview as soon as this finishes
@@ -65,7 +52,7 @@ export default function Home() {
         setProcessingPhase('idle');
       }
     },
-    [ffmpeg, recorder, transcription],
+    [ffmpeg, recorder],
   );
 
   // React to recorder state changes
@@ -81,35 +68,36 @@ export default function Home() {
     processingGenerationRef.current++;
     setProcessingError(null);
     setMp4Blob(null);
-    setAudioBlob(null);
     setProcessingPhase('idle');
     ffmpeg.reset();
-    transcription.reset();
     await recorder.startRecording(selectedResolution);
-  }, [recorder, ffmpeg, transcription, selectedResolution]);
+  }, [recorder, ffmpeg, selectedResolution]);
 
   const handleStopRecording = useCallback(() => {
     recorder.stopRecording();
   }, [recorder]);
 
-  const handleTranscribe = useCallback(() => {
-    if (audioBlob) {
-      transcription.transcribe(audioBlob).catch((err) => {
-        console.error('[Transcription] Transcription failed:', err);
-      });
-    }
-  }, [audioBlob, transcription]);
+  const handleDownloadAudio = useCallback(() => {
+    const audioBlob = recorder.getCompleteAudioBlob();
+    if (!audioBlob) return;
+
+    const url = URL.createObjectURL(audioBlob);
+    const a = document.createElement('a');
+    a.href = url;
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    a.download = `recording-audio-${timestamp}.webm`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [recorder]);
 
   const handleRecordAgain = useCallback(() => {
     processingGenerationRef.current++;
     setProcessingPhase('idle');
     setMp4Blob(null);
-    setAudioBlob(null);
     setProcessingError(null);
     ffmpeg.reset();
-    transcription.reset();
     recorder.reset();
-  }, [ffmpeg, transcription, recorder]);
+  }, [ffmpeg, recorder]);
 
   const isProcessing = processingPhase === 'processing';
   const isDone = processingPhase === 'done' && mp4Blob !== null;
@@ -207,7 +195,7 @@ export default function Home() {
             <RecordButton state="idle" onClick={handleStartRecording} />
 
             {/* Feature cards */}
-            <div className="grid grid-cols-3 gap-3 mt-12 w-full max-w-lg">
+            <div className="grid grid-cols-2 gap-3 mt-12 w-full max-w-md">
               {[
                 {
                   icon: 'M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z',
@@ -218,11 +206,6 @@ export default function Home() {
                   icon: 'M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z',
                   label: 'System Audio',
                   desc: 'Mix mic + speakers',
-                },
-                {
-                  icon: 'M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z',
-                  label: 'AI Transcript',
-                  desc: 'Powered by Whisper',
                 },
               ].map((feat, i) => (
                 <div
@@ -316,8 +299,6 @@ export default function Home() {
             <ProgressPanel
               ffmpegProgress={ffmpeg.progress}
               ffmpegState={ffmpeg.state}
-              transcriptionState={transcription.state}
-              transcriptionProgress={transcription.transcriptionProgress}
             />
           </div>
         )}
@@ -326,37 +307,26 @@ export default function Home() {
         {isDone && (
           <div className="w-full max-w-2xl mx-auto space-y-8">
             <VideoPreview blob={mp4Blob} />
-            {transcription.state === 'idle' && audioBlob ? (
-              <div className="flex justify-center">
-                <button
-                  onClick={handleTranscribe}
-                  className="group flex items-center gap-3 px-8 py-4
-                             bg-gradient-to-r from-emerald-600 to-teal-600
-                             hover:from-emerald-500 hover:to-teal-500
-                             text-white font-semibold rounded-2xl
-                             transition-all duration-200 shadow-xl shadow-emerald-600/20
-                             hover:shadow-emerald-500/30 active:scale-[0.99]
-                             border border-emerald-400/20 hover:border-emerald-400/30"
-                >
-                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                      d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
-                  </svg>
-                  <span className="text-base">Transcribe Audio</span>
-                </button>
-              </div>
-            ) : transcription.state === 'loading-model' || transcription.state === 'transcribing' ? (
-              <div className="bg-zinc-900/40 border border-zinc-800/50 rounded-2xl p-5">
-                <div className="flex items-center justify-center gap-2">
-                  <div className="w-4 h-4 border-2 border-zinc-500 border-t-transparent rounded-full animate-spin" />
-                  <p className="text-sm text-zinc-500">Transcribing audio...</p>
-                </div>
-              </div>
-            ) : transcription.state === 'done' && displaySegments.length > 0 ? (
-              <TranscriptPanel segments={displaySegments} />
-            ) : null}
 
-            <div className="flex justify-center">
+            {/* Download buttons */}
+            <div className="flex justify-center gap-3">
+              <button
+                onClick={handleDownloadAudio}
+                className="group flex items-center gap-3 px-6 py-3.5
+                           bg-gradient-to-r from-violet-600 to-purple-600
+                           hover:from-violet-500 hover:to-purple-500
+                           text-white font-semibold rounded-2xl
+                           transition-all duration-200 shadow-xl shadow-violet-600/20
+                           hover:shadow-violet-500/30 active:scale-[0.99]
+                           border border-violet-400/20 hover:border-violet-400/30"
+              >
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                    d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
+                </svg>
+                <span className="text-base">Download Audio</span>
+              </button>
+
               <button
                 onClick={handleRecordAgain}
                 className="group flex items-center gap-2.5 px-6 py-3.5 bg-zinc-800/80 hover:bg-zinc-700/80 
@@ -377,7 +347,7 @@ export default function Home() {
                     d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
                   />
                 </svg>
-                Record Another Video
+                Record Again
               </button>
             </div>
           </div>

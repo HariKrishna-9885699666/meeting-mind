@@ -11,7 +11,7 @@ const nextConfig = {
       },
     ];
   },
-  serverExternalPackages: ['onnxruntime-node'],
+
   turbopack: {
     resolveAlias: {
       fs: './lib/empty-module.js',

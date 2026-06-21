@@ -15,9 +15,7 @@ interface UseScreenRecorderReturn {
   startRecording: (resolution?: '1080p' | '4K') => Promise<void>;
   stopRecording: () => void;
   reset: () => void;
-  /** Returns a blob of new audio-only chunks since the last call (prepends WebM header for valid decoding). */
-  getPendingAudioChunksBlob: () => Blob | null;
-  /** Returns a complete audio-only blob of all recorded audio (for final transcription). */
+  /** Returns a complete audio-only blob of all recorded audio. */
   getCompleteAudioBlob: () => Blob | null;
 }
 
@@ -36,7 +34,7 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
   // Separate audio-only MediaRecorder for live transcription chunks
   const audioRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
-  const lastTranscribedAudioChunkIndexRef = useRef<number>(0);
+
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
@@ -216,7 +214,7 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
           audioRecorder = new MediaRecorder(audioStream, { mimeType: audioMimeType });
           audioRecorderRef.current = audioRecorder;
           audioChunksRef.current = [];
-          lastTranscribedAudioChunkIndexRef.current = 0;
+
 
           audioRecorder.ondataavailable = (e) => {
             if (e.data.size > 0) {
@@ -324,24 +322,6 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
     }
   }, []);
 
-  const getPendingAudioChunksBlob = useCallback((): Blob | null => {
-    const chunks = audioChunksRef.current;
-    const fromIndex = lastTranscribedAudioChunkIndexRef.current;
-
-    if (fromIndex >= chunks.length) {
-      return null;
-    }
-
-    const newChunks = chunks.slice(fromIndex);
-    lastTranscribedAudioChunkIndexRef.current = chunks.length;
-
-    // Use best audio mime type
-    const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-      ? 'audio/webm;codecs=opus'
-      : 'audio/webm';
-    return new Blob(newChunks, { type: mimeType });
-  }, []);
-
   const getCompleteAudioBlob = useCallback((): Blob | null => {
     const chunks = audioChunksRef.current;
     if (chunks.length === 0) return null;
@@ -362,7 +342,6 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
     setAudioTrackMuted(false);
     chunksRef.current = [];
     audioChunksRef.current = [];
-    lastTranscribedAudioChunkIndexRef.current = 0;
   }, []);
 
   return {
@@ -376,7 +355,6 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
     startRecording,
     stopRecording,
     reset,
-    getPendingAudioChunksBlob,
     getCompleteAudioBlob,
   };
 }
