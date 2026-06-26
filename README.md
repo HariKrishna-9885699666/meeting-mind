@@ -10,8 +10,10 @@ A zero-backend, browser-based screen recorder that captures your screen with sys
 - **4K & 1080p resolution selector** — Toggle between Ultra HD (3840×2160 @ 60fps) and Full HD (1920×1080 @ 30fps) before recording
 - **Native MP4 recording** — Chrome/Edge can record directly to MP4 (H.264/AAC), skipping FFmpeg conversion entirely. Instant playback after stopping
 - **FFmpeg WASM fallback** — If MP4 isn't supported, records WebM (VP9/VP8) and converts to MP4 in-browser via ffmpeg.wasm (CRF 18, 192 kbps AAC audio)
-- **Resolution-based bitrate** — 12 Mbps for 4K, 6 Mbps for 1080p — balanced quality without bloated files
+- **Resolution-based bitrate** — 8 Mbps for 4K, 4 Mbps for 1080p — balanced quality without bloated files
 - **Dual audio capture** — Mixes system audio + microphone via Web Audio API into a single recording
+- **Auto-download** — Video (MP4) and audio (WebM) files are automatically downloaded when processing completes
+- **Folder-based saving** — Optionally set a save folder (via File System Access API); recordings are saved to `<folder>/YYYY-MM-DD/` subfolders with a fallback to timestamped filenames
 - **Audio download** — Download the raw audio track separately from your recording
 - **Keyboard shortcuts** — Press `Escape` to stop recording with visual "Esc to stop" indicator
 - **VEED.io-inspired UI** — Clean dark theme with glassmorphism effects, animated record button, audio visualizer, and feature cards
@@ -33,6 +35,8 @@ A zero-backend, browser-based screen recorder that captures your screen with sys
 | FFmpeg Conversion | `@ffmpeg/ffmpeg` + `@ffmpeg/util` (WASM, self-hosted from `/ffmpeg/`)   |
 | Styling           | Tailwind CSS v3 + custom CSS (glassmorphism, shimmer, modal animations) |
 | State             | React `useState` / `useRef` / `useCallback`                             |
+| File Saving       | File System Access API (`showDirectoryPicker`, `createWritable`)        |
+| Handle Storage    | IndexedDB for persisted directory handles across sessions               |
 
 ## Getting Started
 
@@ -100,19 +104,33 @@ getDisplayMedia() + getUserMedia()
     │  │ Audio button │  │
     │  └──────────────┘  │
     │  [Record Again]    │
-    └────────────────────┘
+    └────────┬───────────┘
+             │
+             ▼
+    ┌────────────────────────┐
+    │  Auto-download         │
+    │  ┌──────────────────┐  │
+    │  │ File System API? │  │
+    │  │ Yes → folder/    │  │
+    │  │       YYYY-MM-DD/│  │
+    │  │ No  → timestamped│  │
+    │  │       filenames  │  │
+    │  └──────────────────┘  │
+    │  + manual Download     │
+    │    buttons in UI       │
+    └────────────────────────┘
 ```
 
 ## App States
 
 | State        | UI                                                                                                                                                                                            |
 | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `idle`       | Resolution toggle pill (1080p / 4K), large Record button with pulsing glow ring, 2 feature cards (resolution, system audio), header with logo + "All local · No uploads" badge               |
-| `requesting` | Spinner + "Waiting for screen selection..." — system picker is open                                                                                                                           |
-| `recording`  | Glass recording bar with REC indicator + timer + audio visualizer, Stop button with "Esc to stop" hint                                                                                        |
-| `processing` | (WebM fallback only) Spinner + FFmpeg conversion progress bar — MP4 path skips this entirely                                                                                                  |
-| `done`       | Video player with download MP4 button, download audio button, "Record Again" button                                                                                                          |
-| `error`      | Inline red banner with error message + "Try again →" button                                                                                                                                   |
+| `idle`       | Resolution toggle pill (1080p / 4K), "Set save folder" button (Chromium), large Record button with pulsing glow ring, 2 feature cards (resolution, system audio), header with logo + "All local · No uploads" badge |
+| `requesting` | Spinner + "Waiting for screen selection..." — system picker is open                                                                                                                                                 |
+| `recording`  | Glass recording bar with REC indicator + timer + audio visualizer, Stop button with "Esc to stop" hint                                                                                                              |
+| `processing` | (WebM fallback only) Spinner + FFmpeg conversion progress bar — MP4 path skips this entirely                                                                                                                        |
+| `done`       | Video player with download MP4 button, download audio button, "Record Again" button — video & audio auto-download on arrival                                                                                        |
+| `error`      | Inline red banner with error message + "Try again →" button                                                                                                                                                         |
 
 ## Browser Support
 
@@ -146,6 +164,12 @@ components/
 hooks/
   useScreenRecorder.ts    # Dual MediaRecorder (video + audio), 4K/1080p, Web Audio mixer, audio level meter
   useFFmpeg.ts            # FFmpeg WASM init (self-hosted from /ffmpeg/), webm→mp4 conversion
+
+lib/
+  fileStorage.ts          # File System Access API helpers — IndexedDB handle persistence, folder/blob save, fallback download
+
+types/
+  file-system-access.d.ts # TypeScript declarations for File System Access API
 
 public/
   favicon.svg             # Camera + animated record dot (blue→purple gradient)
@@ -202,6 +226,7 @@ cp node_modules/@ffmpeg/core/dist/esm/ffmpeg-core.wasm public/ffmpeg/
 - **No Firefox/Safari** — Missing required Web APIs (system audio, SharedArrayBuffer)
 - **4K resolution** — Actual resolution depends on the user's display; selecting 4K on a 1080p monitor will record at 1080p
 - **macOS system audio** — Chrome on macOS cannot capture system audio due to OS restrictions
+- **Folder saving** — File System Access API is Chromium-only; Firefox/Safari fall back to standard downloads with timestamped filenames
 
 ## License
 

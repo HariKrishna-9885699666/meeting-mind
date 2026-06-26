@@ -10,6 +10,14 @@ import KeyboardHandler from '@/components/KeyboardHandler';
 import FloatingInfoButton from '@/components/FloatingInfoButton';
 import { useScreenRecorder } from '@/hooks/useScreenRecorder';
 import { useFFmpeg } from '@/hooks/useFFmpeg';
+import {
+  supportsFileSystemAPI,
+  saveDirectoryHandle,
+  loadDirectoryHandle,
+  clearDirectoryHandle,
+  saveBlobToFolder,
+  triggerFallbackDownload,
+} from '@/lib/fileStorage';
 
 export default function Home() {
   const recorder = useScreenRecorder();
@@ -19,8 +27,25 @@ export default function Home() {
   const [processingError, setProcessingError] = useState<string | null>(null);
   const [processingPhase, setProcessingPhase] = useState<'idle' | 'processing' | 'done'>('idle');
   const [selectedResolution, setSelectedResolution] = useState<'1080p' | '4K'>('4K');
+  const [saveFolderName, setSaveFolderName] = useState<string | null>(null);
+  const [saveFolderStatus, setSaveFolderStatus] = useState<'idle' | 'loading' | 'ready'>('idle');
+  const [canUseFileSystemAPI, setCanUseFileSystemAPI] = useState(false);
 
   const processingGenerationRef = useRef(0);
+  const dirHandleRef = useRef<FileSystemDirectoryHandle | null>(null);
+
+  // Load saved directory handle on mount
+  useEffect(() => {
+    setCanUseFileSystemAPI(supportsFileSystemAPI());
+    (async () => {
+      const handle = await loadDirectoryHandle();
+      if (handle) {
+        dirHandleRef.current = handle;
+        setSaveFolderName(handle.name);
+        setSaveFolderStatus('ready');
+      }
+    })();
+  }, []);
 
   const errorMessage = recorder.error ?? processingError;
 
@@ -45,6 +70,23 @@ export default function Home() {
 
         setMp4Blob(mp4Blob);
         setProcessingPhase('done');
+
+        // Auto-download — use File System API if a folder is configured
+        try {
+          const audioBlob = recorder.getCompleteAudioBlob();
+          const handle = dirHandleRef.current;
+          if (handle) {
+            await saveBlobToFolder(handle, mp4Blob, 'meeting.mp4');
+            if (audioBlob) {
+              await saveBlobToFolder(handle, audioBlob, 'audio.webm');
+            }
+          } else {
+            triggerFallbackDownload(mp4Blob, audioBlob);
+          }
+        } catch (dlErr) {
+          console.warn('Auto-download failed, falling back to manual download:', dlErr);
+          triggerFallbackDownload(mp4Blob, recorder.getCompleteAudioBlob());
+        }
       } catch (err) {
         if (processingGenerationRef.current !== generation) return;
         const message = err instanceof Error ? err.message : 'Processing failed.';
@@ -63,6 +105,27 @@ export default function Home() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recorder.state]);
+
+  const handleSetSaveFolder = useCallback(async () => {
+    if (!supportsFileSystemAPI()) return;
+    try {
+      setSaveFolderStatus('loading');
+      const handle = await window.showDirectoryPicker({ mode: 'readwrite' });
+      await saveDirectoryHandle(handle);
+      dirHandleRef.current = handle;
+      setSaveFolderName(handle.name);
+      setSaveFolderStatus('ready');
+    } catch {
+      setSaveFolderStatus('idle');
+    }
+  }, []);
+
+  const handleClearSaveFolder = useCallback(async () => {
+    await clearDirectoryHandle();
+    dirHandleRef.current = null;
+    setSaveFolderName(null);
+    setSaveFolderStatus('idle');
+  }, []);
 
   const handleStartRecording = useCallback(async () => {
     processingGenerationRef.current++;
@@ -193,6 +256,39 @@ export default function Home() {
             </div>
 
             <RecordButton state="idle" onClick={handleStartRecording} />
+
+            {/* Save folder selector */}
+            {canUseFileSystemAPI && (
+              <div className="mt-6 flex items-center gap-2">
+                {saveFolderStatus === 'ready' && saveFolderName ? (
+                  <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-900/20 border border-emerald-800/30">
+                    <svg className="w-4 h-4 text-emerald-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <span className="text-xs text-emerald-300 truncate max-w-[160px]">{saveFolderName}</span>
+                    <button onClick={handleClearSaveFolder} className="text-emerald-500 hover:text-emerald-300 ml-1" title="Remove save folder">
+                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={handleSetSaveFolder}
+                    disabled={saveFolderStatus === 'loading'}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg
+                               bg-zinc-800/60 hover:bg-zinc-700/60 border border-zinc-700/50
+                               text-zinc-400 hover:text-zinc-200 text-xs font-medium
+                               transition-all duration-200 disabled:opacity-50"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                    </svg>
+                    {saveFolderStatus === 'loading' ? 'Loading...' : 'Set save folder'}
+                  </button>
+                )}
+              </div>
+            )}
 
             {/* Feature cards */}
             <div className="grid grid-cols-2 gap-3 mt-12 w-full max-w-md">
